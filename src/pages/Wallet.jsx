@@ -769,9 +769,7 @@ export default function Wallet() {
                   autoFocus
                 />
               </div>
-              {import.meta.env.DEV && (
-              <p className="wal-verify-hint">Dev: check console for verification code</p>
-              )}
+              <p className="wal-verify-hint">Your verification code is shown in the input field or console</p>
               <div className="wal-modal-actions">
                 <button className="wal-btn secondary" onClick={() => setShowVerifyModal(false)}>Cancel</button>
                 <button className="wal-btn primary" onClick={handleVerifySubmit} disabled={verifyCode.length < 6}>
@@ -804,9 +802,7 @@ export default function Wallet() {
                   maxLength={6}
                 />
               </div>
-              {import.meta.env.DEV && (
-              <p className="wal-verify-hint">Dev: check console for verification code</p>
-              )}
+              <p className="wal-verify-hint">Your verification code is shown in the input field or console</p>
               <div className="wal-modal-actions">
                 <button className="wal-btn secondary" onClick={() => setShowPhoneSetup(false)}>Cancel</button>
                 <button className="wal-btn primary" onClick={handlePhoneSetup}>Verify Phone</button>

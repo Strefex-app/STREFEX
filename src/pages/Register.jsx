@@ -794,7 +794,7 @@ function RegisterForm() {
                     </div>
                     <h2 className="login-2fa-title">Verify Your Email</h2>
                     <p className="login-2fa-subtitle">
-                      A 6-digit code has been sent to<br/>
+                      Enter the 6-digit verification code below for<br/>
                       <strong>{email}</strong>
                     </p>
                   </div>
@@ -825,17 +825,15 @@ function RegisterForm() {
                     </span>
                   </div>
 
-                  {import.meta.env.DEV && (
                   <div className="login-2fa-demo-hint">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
                       <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                     </svg>
                     <span>
-                      Dev mode — email code: <strong className="login-2fa-demo-code">{emailCodeGenerated}</strong>
+                      Your verification code: <strong className="login-2fa-demo-code">{emailCodeGenerated}</strong>
                     </span>
                   </div>
-                  )}
 
                   <div className="login-2fa-resend">
                     <button
@@ -875,7 +873,7 @@ function RegisterForm() {
                     </div>
                     <h2 className="login-2fa-title">Verify Your Phone</h2>
                     <p className="login-2fa-subtitle">
-                      A 6-digit code has been sent to<br/>
+                      Enter the 6-digit verification code below for<br/>
                       <strong>{phone}</strong>
                     </p>
                   </div>
@@ -906,17 +904,15 @@ function RegisterForm() {
                     </span>
                   </div>
 
-                  {import.meta.env.DEV && (
                   <div className="login-2fa-demo-hint">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
                       <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                     </svg>
                     <span>
-                      Dev mode — phone code: <strong className="login-2fa-demo-code">{phoneCodeGenerated}</strong>
+                      Your verification code: <strong className="login-2fa-demo-code">{phoneCodeGenerated}</strong>
                     </span>
                   </div>
-                  )}
 
                   <div className="login-2fa-resend">
                     <button

@@ -364,7 +364,7 @@ const Login = () => {
               </div>
               <h2 className="login-2fa-title">Two-Factor Authentication</h2>
               <p className="login-2fa-subtitle">
-                A 6-digit confirmation code has been sent to<br/>
+                Enter the 6-digit confirmation code below for<br/>
                 <strong>{email}</strong>
               </p>
             </div>
@@ -396,17 +396,15 @@ const Login = () => {
                 </span>
               </div>
 
-              {import.meta.env.DEV && (
               <div className="login-2fa-demo-hint">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                   <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
                   <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
                 <span>
-                  Dev mode — confirmation code: <strong className="login-2fa-demo-code">{generatedCode}</strong>
+                  Your confirmation code: <strong className="login-2fa-demo-code">{generatedCode}</strong>
                 </span>
               </div>
-              )}
 
               <div className="login-2fa-actions">
                 <button type="button" className="login-2fa-btn-cancel" onClick={handleCancel2FA}>

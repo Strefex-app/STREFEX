@@ -194,7 +194,7 @@ export default function SendPayment() {
                 autoFocus
               />
             </div>
-            {import.meta.env.DEV && <p className="sp-verify-hint">Dev: check console for verification code</p>}
+            <p className="sp-verify-hint">Your verification code is shown in the input field or console</p>
             <div className="sp-form-actions center">
               <button className="sp-btn secondary" onClick={() => { setStep('form'); setError('') }}>Back</button>
               <button className="sp-btn primary" onClick={handleVerify} disabled={verifyCode.length < 6}>
