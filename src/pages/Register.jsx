@@ -258,7 +258,12 @@ function RegisterForm() {
 
       navigate('/main-menu')
     } catch (err) {
-      setError(err.detail || err.message || 'Registration failed. Please try again.')
+      const msg = err?.detail || err?.message || ''
+      if (err?.code === 'auth_service_unavailable' || err?.status === 404 || msg.includes('HTTP 404')) {
+        setError('Registration service is not configured for this deployment yet. Please contact admin to finish Vercel environment setup.')
+      } else {
+        setError(msg || 'Registration failed. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
