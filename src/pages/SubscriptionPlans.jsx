@@ -158,6 +158,8 @@ export default function SubscriptionPlans() {
   }
 
   const trialInfo = subStatus === 'trialing'
+  const trialDaysLeft = useSubscriptionStore((s) => s.trialDaysLeft)()
+  const isTrialExpired = subStatus === 'trial_expired'
 
   const planAccent = (id) => {
     const colors = { start: '#95a5a6', basic: '#3498db', standard: '#f39c12', premium: '#8e44ad', enterprise: '#000888' }
@@ -180,7 +182,17 @@ export default function SubscriptionPlans() {
 
         {error && <div className="sp-alert">{error}</div>}
         {searchParams.get('success') === 'true' && <div className="sp-alert sp-alert-success">Payment successful! Your plan has been upgraded.</div>}
-        {trialInfo && <div className="sp-alert sp-alert-info">You are on a 14-day free trial of Enterprise features.</div>}
+        {trialInfo && accountType === 'buyer' && (
+          <div className="sp-alert sp-alert-info">
+            You are on a free trial of the Basic plan. <strong>{trialDaysLeft} day{trialDaysLeft !== 1 ? 's' : ''} remaining.</strong> Subscribe to continue using platform features after the trial ends.
+          </div>
+        )}
+        {trialInfo && accountType !== 'buyer' && <div className="sp-alert sp-alert-info">You are on a free trial. {trialDaysLeft} day{trialDaysLeft !== 1 ? 's' : ''} remaining.</div>}
+        {isTrialExpired && (
+          <div className="sp-alert" style={{ borderColor: '#e74c3c', background: 'rgba(231,76,60,.06)' }}>
+            Your free trial has expired. Subscribe to a plan below to regain access to platform features.
+          </div>
+        )}
         {pendingUpgrade && (
           <div className="sp-alert sp-alert-info" style={{ borderColor: '#e65100', background: 'rgba(230,81,0,.06)' }}>
             <strong>Upgrade Pending:</strong> Your upgrade to <strong>{PLANS.find((p) => p.id === pendingUpgrade.planTo)?.name}</strong> is: <strong>{pendingStatusLabel}</strong>

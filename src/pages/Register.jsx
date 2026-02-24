@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { useAuthStore } from '../store/authStore'
@@ -8,16 +8,9 @@ import { useTranslation } from '../i18n/useTranslation'
 import { getStripe, isStripeConfigured } from '../config/stripe'
 import { billingApi } from '../services/api'
 import authService from '../services/authService'
-import { PLANS, ACCOUNT_TYPES, getPlansForAccountType, getPlanPrice, getPlanFeatures } from '../services/stripeService'
+import { PLANS, ACCOUNT_TYPES, getPlansForAccountType, getPlanPrice, getPlanFeatures, BUYER_TRIAL_DAYS } from '../services/stripeService'
 import { analytics } from '../services/analytics'
 import { useAccountRegistry } from '../store/accountRegistry'
-import {
-  sendEmailCode,
-  verifyEmailCode,
-  sendPhoneCode,
-  verifyPhoneCode,
-  clearPendingVerification,
-} from '../services/verificationService'
 import './Login.css'
 import './Register.css'
 
@@ -36,7 +29,7 @@ const CARD_ELEMENT_OPTIONS = {
 
 /* ── Inner form (needs Stripe context) ───────────────────── */
 function RegisterForm() {
-  const [step, setStep] = useState(1) // 1 = account, 2 = plan, 3 = verify
+  const [step, setStep] = useState(1) // 1 = account, 2 = plan, 3 = check-email
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
@@ -51,18 +44,6 @@ function RegisterForm() {
   const [cardComplete, setCardComplete] = useState(false)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [showAgreementModal, setShowAgreementModal] = useState(false)
-
-  // Verification state
-  const [verifyStep, setVerifyStep] = useState('email') // 'email' | 'phone'
-  const [emailCode, setEmailCode] = useState('')
-  const [phoneCode, setPhoneCode] = useState('')
-  const [emailCodeGenerated, setEmailCodeGenerated] = useState('')
-  const [phoneCodeGenerated, setPhoneCodeGenerated] = useState('')
-  const [emailVerified, setEmailVerified] = useState(false)
-  const [phoneVerified, setPhoneVerified] = useState(false)
-  const [verifyError, setVerifyError] = useState('')
-  const [verifyTimer, setVerifyTimer] = useState(300)
-  const timerRef = useRef(null)
 
   const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
@@ -86,7 +67,8 @@ function RegisterForm() {
 
   const selectedPlanObj = PLANS.find((p) => p.id === selectedPlan) || PLANS[0]
   const displayPrice = getPlanPrice(selectedPlanObj, accountType)
-  const isPaidPlan = displayPrice > 0
+  const isBuyerBasicTrial = accountType === 'buyer' && selectedPlan === 'basic'
+  const isPaidPlan = displayPrice > 0 && !isBuyerBasicTrial
 
   const getDomain = (e) => {
     if (!e || !e.includes('@')) return null
@@ -125,25 +107,6 @@ function RegisterForm() {
 
   const accountTypeLabel = ACCOUNT_TYPES.find((t) => t.id === accountType)?.label || accountType
 
-  /* ── Timer for verification codes ────────────────────────── */
-  const startTimer = useCallback(() => {
-    clearInterval(timerRef.current)
-    setVerifyTimer(300)
-    timerRef.current = setInterval(() => {
-      setVerifyTimer((prev) => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current)
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-  }, [])
-
-  useEffect(() => () => clearInterval(timerRef.current), [])
-
-  const formatTimer = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-
   /* ── Step 1 validation ─────────────────────────────────── */
   const validateAccount = () => {
     if (!fullName.trim() || fullName.trim().length < 2) return 'Full name must be at least 2 characters'
@@ -179,91 +142,7 @@ function RegisterForm() {
     setStep(2)
   }
 
-  /* ── Start verification (step 3) ────────────────────────── */
-  const startVerification = () => {
-    setVerifyStep('email')
-    setEmailVerified(false)
-    setPhoneVerified(false)
-    setEmailCode('')
-    setPhoneCode('')
-    setVerifyError('')
-    clearPendingVerification()
-
-    const { code } = sendEmailCode(email.trim().toLowerCase())
-    setEmailCodeGenerated(code)
-    startTimer()
-    setStep(3)
-  }
-
-  /* ── Resend code ────────────────────────────────────────── */
-  const handleResendCode = () => {
-    setVerifyError('')
-    if (verifyStep === 'email') {
-      const { code } = sendEmailCode(email.trim().toLowerCase())
-      setEmailCodeGenerated(code)
-      setEmailCode('')
-    } else {
-      const { code } = sendPhoneCode(phone.trim())
-      setPhoneCodeGenerated(code)
-      setPhoneCode('')
-    }
-    startTimer()
-  }
-
-  /* ── Verify email code ──────────────────────────────────── */
-  const handleVerifyEmail = (e) => {
-    e.preventDefault()
-    setVerifyError('')
-    if (!emailCode || emailCode.length !== 6) {
-      setVerifyError('Please enter the 6-digit code sent to your email')
-      return
-    }
-    if (!verifyEmailCode(emailCode)) {
-      setVerifyError('Invalid or expired code. Please try again.')
-      return
-    }
-    setEmailVerified(true)
-    // Move to phone verification
-    setVerifyStep('phone')
-    setPhoneCode('')
-    setVerifyError('')
-    const { code } = sendPhoneCode(phone.trim())
-    setPhoneCodeGenerated(code)
-    startTimer()
-  }
-
-  /* ── Verify phone code ──────────────────────────────────── */
-  const handleVerifyPhone = (e) => {
-    e.preventDefault()
-    setVerifyError('')
-    if (!phoneCode || phoneCode.length !== 6) {
-      setVerifyError('Please enter the 6-digit code sent to your phone')
-      return
-    }
-    if (!verifyPhoneCode(phoneCode)) {
-      setVerifyError('Invalid or expired code. Please try again.')
-      return
-    }
-    setPhoneVerified(true)
-    clearInterval(timerRef.current)
-    // Both verified — complete registration
-    completeRegistration()
-  }
-
-  /* ── Cancel verification ────────────────────────────────── */
-  const handleCancelVerification = () => {
-    clearPendingVerification()
-    clearInterval(timerRef.current)
-    setStep(2)
-    setVerifyStep('email')
-    setEmailCode('')
-    setPhoneCode('')
-    setEmailVerified(false)
-    setPhoneVerified(false)
-    setVerifyError('')
-  }
-
-  /* ── Step 2 submit — triggers verification ─────────────── */
+  /* ── Step 2 submit — register via Supabase ─────────────── */
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -273,64 +152,23 @@ function RegisterForm() {
       return
     }
 
-    // Start the verification flow
-    startVerification()
-  }
-
-  /* ── Actual registration after verification passes ──────── */
-  const completeRegistration = async () => {
     setLoading(true)
     try {
-      let authResponse
-      try {
-        authResponse = await authService.register({
-          fullName: fullName.trim(),
-          email: email.trim().toLowerCase(),
-          password,
-          company: company.trim() || undefined,
-          selectedPlan,
-        })
-      } catch (err) {
-        if (err.status === 0 || err.message?.includes('Network error')) {
-          console.warn('[Register] Backend unreachable — using offline mode')
-          login({
-            role: 'admin',
-            user: {
-              email: email.trim().toLowerCase(),
-              fullName: fullName.trim(),
-              companyName: company.trim() || fullName.trim(),
-              phone: phone.trim(),
-              agreementAcceptedAt: new Date().toISOString(),
-              emailVerified: true,
-              phoneVerified: true,
-            },
-          })
-          setStoreAccountType(accountType)
-          setPlan(selectedPlan)
-          try {
-            useAccountRegistry.getState().registerAccount({
-              id: `reg-${Date.now()}`,
-              company: company.trim() || fullName.trim(),
-              email: email.trim().toLowerCase(),
-              phone: phone.trim(),
-              contactName: fullName.trim(),
-              accountType,
-              plan: selectedPlan,
-              status: 'active',
-              industries: [],
-              categories: {},
-              registeredAt: new Date().toISOString(),
-              validUntil: selectedPlan === 'start' ? null : new Date(Date.now() + 365 * 86400000).toISOString(),
-              agreementAcceptedAt: new Date().toISOString(),
-              emailVerified: true,
-              phoneVerified: true,
-            })
-          } catch { /* silent */ }
-          analytics.track('user_register', { method: 'offline', plan: selectedPlan, accountType })
-          navigate('/main-menu')
-          return
-        }
-        throw err
+      const result = await authService.register({
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        phone: phone.trim(),
+        company: company.trim() || undefined,
+        selectedPlan,
+        accountType,
+      })
+
+      // If Supabase returned a user but no session, email confirmation is pending
+      if (result?.emailConfirmationPending) {
+        setStep(3)
+        analytics.track('user_register', { method: 'supabase', plan: selectedPlan, accountType, awaitingConfirmation: true })
+        return
       }
 
       // If paid plan, create Stripe subscription
@@ -390,6 +228,8 @@ function RegisterForm() {
           setTimeout(() => navigate('/main-menu'), 3000)
           return
         }
+      } else if (isBuyerBasicTrial) {
+        useSubscriptionStore.getState().startBuyerTrial(BUYER_TRIAL_DAYS)
       } else {
         setPlan(selectedPlan)
       }
@@ -419,7 +259,6 @@ function RegisterForm() {
       navigate('/main-menu')
     } catch (err) {
       setError(err.detail || err.message || 'Registration failed. Please try again.')
-      setStep(2)
     } finally {
       setLoading(false)
     }
@@ -481,7 +320,7 @@ function RegisterForm() {
               ? 'Get started with STREFEX Platform'
               : step === 2
               ? `Choose your ${accountTypeLabel} plan`
-              : 'Verify your identity'}
+              : 'Almost there!'}
           </p>
 
           {/* Step indicator */}
@@ -498,7 +337,7 @@ function RegisterForm() {
             <div className="reg-step-line" />
             <div className={`reg-step ${step >= 3 ? 'active' : ''}`}>
               <span className="reg-step-num">3</span>
-              <span className="reg-step-label">Verify</span>
+              <span className="reg-step-label">Confirm</span>
             </div>
           </div>
 
@@ -676,6 +515,7 @@ function RegisterForm() {
                 {availablePlans.map((plan) => {
                   const price = getPlanPrice(plan, accountType)
                   const features = getPlanFeatures(plan, accountType)
+                  const isBuyerTrial = accountType === 'buyer' && plan.id === 'basic'
                   return (
                     <button
                       key={plan.id}
@@ -683,10 +523,13 @@ function RegisterForm() {
                       className={`reg-plan-card ${selectedPlan === plan.id ? 'selected' : ''} ${plan.popular ? 'popular' : ''}`}
                       onClick={() => setSelectedPlan(plan.id)}
                     >
-                      {plan.popular && <span className="reg-plan-badge">Popular</span>}
+                      {isBuyerTrial && <span className="reg-plan-badge" style={{ background: '#2e7d32' }}>Free Trial</span>}
+                      {!isBuyerTrial && plan.popular && <span className="reg-plan-badge">Popular</span>}
                       <span className="reg-plan-name">{plan.name}</span>
                       <span className="reg-plan-price">
-                        {price === 0 ? 'Free' : `$${price}/mo`}
+                        {isBuyerTrial
+                          ? <><span style={{ fontSize: '0.7em', fontWeight: 400 }}>Free for</span> {BUYER_TRIAL_DAYS} days</>
+                          : price === 0 ? 'Free' : `$${price}/mo`}
                       </span>
                       <ul className="reg-plan-features">
                         {features.slice(0, 3).map((f, i) => (
@@ -735,7 +578,9 @@ function RegisterForm() {
 
               {!isPaidPlan && (
                 <div className="reg-free-note">
-                  No payment required for the Start plan. You can upgrade anytime from the Plans page.
+                  {isBuyerBasicTrial
+                    ? `No payment required — enjoy a free ${BUYER_TRIAL_DAYS}-day trial of the Basic plan. You can upgrade or subscribe anytime from the Plans page.`
+                    : 'No payment required for the Start plan. You can upgrade anytime from the Plans page.'}
                 </div>
               )}
 
@@ -750,195 +595,48 @@ function RegisterForm() {
                   Back
                 </button>
                 <button type="submit" className="login-button" disabled={loading || (isPaidPlan && stripe && !cardComplete)} style={{ flex: 1 }}>
-                  {loading
-                    ? 'Processing...'
-                    : 'Next — Verify Identity'}
+                  {loading ? 'Creating account...' : 'Create Account'}
                 </button>
               </div>
             </form>
           )}
 
-          {/* ── Step 3: Verification (shown inline, not as modal) ── */}
+          {/* ── Step 3: Email Confirmation Pending ─────── */}
           {step === 3 && (
-            <div className="login-2fa-form">
-              {/* Sub-steps: email → phone */}
-              <div className="login-2fa-steps">
-                <div className={`login-2fa-step ${emailVerified ? 'done' : verifyStep === 'email' ? 'active' : ''}`}>
-                  <span className="login-2fa-step-num">
-                    {emailVerified ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    ) : '1'}
-                  </span>
-                  <span>Email</span>
-                </div>
-                <div className={`login-2fa-step-connector ${emailVerified ? 'done' : ''}`} />
-                <div className={`login-2fa-step ${phoneVerified ? 'done' : verifyStep === 'phone' ? 'active' : ''}`}>
-                  <span className="login-2fa-step-num">
-                    {phoneVerified ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    ) : '2'}
-                  </span>
-                  <span>Phone</span>
-                </div>
+            <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+              <div style={{
+                width: 64, height: 64, borderRadius: '50%', background: '#e8f5e9',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 1.5rem'
+              }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                  <rect x="2" y="4" width="20" height="16" rx="2" stroke="#2e7d32" strokeWidth="2"/>
+                  <path d="M22 7l-10 7L2 7" stroke="#2e7d32" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </div>
-
-              {/* ── Email verification ──────────────────── */}
-              {verifyStep === 'email' && !emailVerified && (
-                <form onSubmit={handleVerifyEmail}>
-                  <div className="login-2fa-header" style={{ marginBottom: 16 }}>
-                    <div className="login-2fa-icon">
-                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                        <rect x="2" y="4" width="20" height="16" rx="2" stroke="#000888" strokeWidth="2"/>
-                        <path d="M22 7l-10 7L2 7" stroke="#000888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </div>
-                    <h2 className="login-2fa-title">Verify Your Email</h2>
-                    <p className="login-2fa-subtitle">
-                      Enter the 6-digit verification code below for<br/>
-                      <strong>{email}</strong>
-                    </p>
-                  </div>
-
-                  {verifyError && (
-                    <div className="login-error" role="alert" style={{ marginBottom: 14 }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-                        <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                      </svg>
-                      {verifyError}
-                    </div>
-                  )}
-
-                  <div className="login-2fa-code-wrap">
-                    <input
-                      type="text"
-                      className="login-2fa-input"
-                      value={emailCode}
-                      onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      placeholder="000000"
-                      maxLength={6}
-                      autoFocus
-                      autoComplete="one-time-code"
-                    />
-                    <span className={`login-2fa-timer ${verifyTimer < 60 ? 'login-2fa-timer-warn' : ''}`}>
-                      {formatTimer(verifyTimer)}
-                    </span>
-                  </div>
-
-                  <div className="login-2fa-demo-hint">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-                      <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                    </svg>
-                    <span>
-                      Your verification code: <strong className="login-2fa-demo-code">{emailCodeGenerated}</strong>
-                    </span>
-                  </div>
-
-                  <div className="login-2fa-resend">
-                    <button
-                      type="button"
-                      className="login-2fa-resend-btn"
-                      onClick={handleResendCode}
-                      disabled={verifyTimer > 240}
-                    >
-                      Resend code
-                    </button>
-                  </div>
-
-                  <div className="login-2fa-actions">
-                    <button type="button" className="login-2fa-btn-cancel" onClick={handleCancelVerification}>
-                      Back
-                    </button>
-                    <button
-                      type="submit"
-                      className="login-2fa-btn-verify"
-                      disabled={emailCode.length !== 6 || verifyTimer === 0}
-                    >
-                      Verify Email
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* ── Phone verification ──────────────────── */}
-              {verifyStep === 'phone' && !phoneVerified && (
-                <form onSubmit={handleVerifyPhone}>
-                  <div className="login-2fa-header" style={{ marginBottom: 16 }}>
-                    <div className="login-2fa-icon">
-                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                        <rect x="5" y="2" width="14" height="20" rx="2" stroke="#000888" strokeWidth="2"/>
-                        <line x1="12" y1="18" x2="12.01" y2="18" stroke="#000888" strokeWidth="2" strokeLinecap="round"/>
-                      </svg>
-                    </div>
-                    <h2 className="login-2fa-title">Verify Your Phone</h2>
-                    <p className="login-2fa-subtitle">
-                      Enter the 6-digit verification code below for<br/>
-                      <strong>{phone}</strong>
-                    </p>
-                  </div>
-
-                  {verifyError && (
-                    <div className="login-error" role="alert" style={{ marginBottom: 14 }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-                        <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                      </svg>
-                      {verifyError}
-                    </div>
-                  )}
-
-                  <div className="login-2fa-code-wrap">
-                    <input
-                      type="text"
-                      className="login-2fa-input"
-                      value={phoneCode}
-                      onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      placeholder="000000"
-                      maxLength={6}
-                      autoFocus
-                      autoComplete="one-time-code"
-                    />
-                    <span className={`login-2fa-timer ${verifyTimer < 60 ? 'login-2fa-timer-warn' : ''}`}>
-                      {formatTimer(verifyTimer)}
-                    </span>
-                  </div>
-
-                  <div className="login-2fa-demo-hint">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-                      <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                    </svg>
-                    <span>
-                      Your verification code: <strong className="login-2fa-demo-code">{phoneCodeGenerated}</strong>
-                    </span>
-                  </div>
-
-                  <div className="login-2fa-resend">
-                    <button
-                      type="button"
-                      className="login-2fa-resend-btn"
-                      onClick={handleResendCode}
-                      disabled={verifyTimer > 240}
-                    >
-                      Resend code
-                    </button>
-                  </div>
-
-                  <div className="login-2fa-actions">
-                    <button type="button" className="login-2fa-btn-cancel" onClick={handleCancelVerification}>
-                      Back
-                    </button>
-                    <button
-                      type="submit"
-                      className="login-2fa-btn-verify"
-                      disabled={phoneCode.length !== 6 || verifyTimer === 0 || loading}
-                    >
-                      {loading ? 'Creating account...' : 'Verify & Create Account'}
-                    </button>
-                  </div>
-                </form>
-              )}
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#333', marginBottom: '0.75rem' }}>
+                Check Your Email
+              </h2>
+              <p style={{ fontSize: '0.95rem', color: '#666', lineHeight: 1.6, marginBottom: '0.5rem' }}>
+                We've sent a confirmation link to
+              </p>
+              <p style={{ fontSize: '1rem', fontWeight: 600, color: '#000888', marginBottom: '1.5rem' }}>
+                {email}
+              </p>
+              <p style={{ fontSize: '0.85rem', color: '#888', lineHeight: 1.6, marginBottom: '2rem' }}>
+                Click the link in the email to activate your account, then come back here to sign in.
+                If you don't see it, check your spam folder.
+              </p>
+              <Link
+                to="/login"
+                className="login-button"
+                style={{
+                  display: 'inline-block', textDecoration: 'none', textAlign: 'center',
+                  padding: '14px 32px', width: 'auto'
+                }}
+              >
+                Go to Sign In
+              </Link>
             </div>
           )}
 

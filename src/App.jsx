@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import { useSubscriptionStore } from './services/featureFlags'
@@ -124,10 +124,40 @@ function PlanGate({ feature, planName, children, requiredRole }) {
 
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const [sessionChecked, setSessionChecked] = useState(false)
 
   useEffect(() => {
-    authService.initSession()
+    authService.initSession().finally(() => setSessionChecked(true))
+
+    // Listen for server-side session changes (sign-out from other tab, token revoked)
+    const unsub = authService.onAuthStateChange((user) => {
+      if (!user && useAuthStore.getState().isAuthenticated) {
+        useAuthStore.getState().logout()
+      }
+    })
+    return unsub
   }, [])
+
+  // While verifying the session, show a minimal loading screen
+  // to prevent flash of login page or unauthorized protected content
+  if (!sessionChecked) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', background: '#fafbfc',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: 40, height: 40, border: '3px solid #e0e0e0',
+            borderTopColor: '#000888', borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite', margin: '0 auto 16px',
+          }} />
+          <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+          <p style={{ color: '#888', fontSize: 14, margin: 0 }}>Loading…</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <ErrorBoundary>

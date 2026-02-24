@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import AppLayout from '../components/AppLayout'
-import { PLANS, getPlanById } from '../services/stripeService'
+import { PLANS, getPlanById, BUYER_TRIAL_DAYS } from '../services/stripeService'
+import { PROMO_CODES } from '../services/featureFlags'
 import { EQUIPMENT_CATEGORIES_BY_INDUSTRY } from '../data/equipmentCategoriesByIndustry'
 import { useTransactionStore } from '../store/transactionStore'
 import { useServiceRequestStore } from '../store/serviceRequestStore'
@@ -72,6 +73,31 @@ function loadFeatureGrants() {
 function saveFeatureGrants(grants) {
   try { localStorage.setItem(GRANTS_KEY, JSON.stringify(grants)) } catch { /* */ }
 }
+
+/* ── Trial extensions / promo grants storage ────────────── */
+const TRIAL_GRANTS_KEY = 'strefex-trial-grants'
+
+function loadTrialGrants() {
+  try {
+    const raw = localStorage.getItem(TRIAL_GRANTS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* */ }
+  return []
+}
+
+function saveTrialGrants(grants) {
+  try { localStorage.setItem(TRIAL_GRANTS_KEY, JSON.stringify(grants)) } catch { /* */ }
+}
+
+const EXTEND_PERIODS = [
+  { value: 7,   label: '7 Days' },
+  { value: 14,  label: '14 Days' },
+  { value: 30,  label: '30 Days' },
+  { value: 60,  label: '60 Days' },
+  { value: 90,  label: '90 Days' },
+  { value: 180, label: '6 Months' },
+  { value: 365, label: '1 Year' },
+]
 
 /* Grantable features — grouped by the plan tier that unlocks them */
 const GRANTABLE_FEATURES = [
@@ -216,6 +242,18 @@ export default function SuperAdminDashboard() {
 
   const registryAccounts = useAccountRegistry((s) => s.accounts)
   const updateRegistryAccount = useAccountRegistry((s) => s.updateAccount)
+
+  /* ── Trial & promo grants state ──────────────────────── */
+  const [trialGrants, setTrialGrants] = useState(loadTrialGrants)
+  const [trialTargetCompany, setTrialTargetCompany] = useState('')
+  const [trialExtendDays, setTrialExtendDays] = useState(30)
+  const [trialPromoCode, setTrialPromoCode] = useState('')
+  const [trialFeedback, setTrialFeedback] = useState('')
+
+  const buyerAccounts = useMemo(
+    () => [...accounts, ...registryAccounts].filter((a) => a.accountType === 'buyer'),
+    [accounts, registryAccounts]
+  )
 
   /* ── Feature grants state ────────────────────────────── */
   const [featureGrants, setFeatureGrants] = useState(loadFeatureGrants)
@@ -2131,6 +2169,247 @@ export default function SuperAdminDashboard() {
     )
   }
 
+  /* ── Trial Management handlers ─────────────────────────── */
+  const handleExtendTrial = () => {
+    if (!trialTargetCompany) return
+    const acct = [...accounts, ...registryAccounts].find((a) => a.id === trialTargetCompany)
+    if (!acct) return
+
+    const now = new Date()
+    const grant = {
+      id: `trial-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      accountId: acct.id,
+      company: acct.company,
+      email: acct.email,
+      accountType: acct.accountType || 'buyer',
+      type: 'trial_extension',
+      extraDays: trialExtendDays,
+      grantedAt: now.toISOString(),
+      newExpiresAt: new Date(now.getTime() + trialExtendDays * 86400000).toISOString(),
+      grantedBy: 'superadmin',
+    }
+
+    const updated = [...trialGrants, grant]
+    setTrialGrants(updated)
+    saveTrialGrants(updated)
+    setTrialFeedback(`Trial extended by ${trialExtendDays} days for ${acct.company || acct.email}`)
+    setTimeout(() => setTrialFeedback(''), 4000)
+  }
+
+  const handleApplyPromo = () => {
+    if (!trialTargetCompany || !trialPromoCode.trim()) return
+    const normalized = trialPromoCode.trim().toUpperCase()
+    const promo = PROMO_CODES[normalized]
+    if (!promo) {
+      setTrialFeedback(`Invalid promo code: ${normalized}`)
+      setTimeout(() => setTrialFeedback(''), 4000)
+      return
+    }
+
+    const acct = [...accounts, ...registryAccounts].find((a) => a.id === trialTargetCompany)
+    if (!acct) return
+
+    const now = new Date()
+    const grant = {
+      id: `promo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      accountId: acct.id,
+      company: acct.company,
+      email: acct.email,
+      accountType: acct.accountType || 'buyer',
+      type: 'promo_code',
+      promoCode: normalized,
+      planId: promo.planId,
+      trialDays: promo.trialDays,
+      description: promo.description,
+      grantedAt: now.toISOString(),
+      newExpiresAt: new Date(now.getTime() + promo.trialDays * 86400000).toISOString(),
+      grantedBy: 'superadmin',
+    }
+
+    const updated = [...trialGrants, grant]
+    setTrialGrants(updated)
+    saveTrialGrants(updated)
+    setTrialPromoCode('')
+    setTrialFeedback(`Promo "${normalized}" applied to ${acct.company || acct.email} — ${promo.description}`)
+    setTimeout(() => setTrialFeedback(''), 5000)
+  }
+
+  const renderTrialManagement = () => (
+    <>
+      {trialFeedback && (
+        <div className="sad-section" style={{ background: trialFeedback.startsWith('Invalid') ? '#fdecea' : '#e8f5e9', borderRadius: 10, padding: '12px 20px', color: trialFeedback.startsWith('Invalid') ? '#c62828' : '#2e7d32', fontWeight: 600, fontSize: 14, marginBottom: 16 }}>
+          {trialFeedback}
+        </div>
+      )}
+
+      {/* Info */}
+      <div className="sad-section" style={{ background: 'rgba(0,8,136,.04)', borderRadius: 10, padding: '16px 20px', marginBottom: 20 }}>
+        <p style={{ margin: 0, fontSize: 14, color: '#444', lineHeight: 1.6 }}>
+          <strong>Buyer Trial Policy:</strong> New buyer accounts receive a free <strong>{BUYER_TRIAL_DAYS}-day trial</strong> of the Basic plan.
+          After the trial expires, buyers must subscribe to continue using platform features.
+          You can extend trials or apply promo codes below.
+        </p>
+      </div>
+
+      {/* KPIs */}
+      <div className="sad-kpi-row" style={{ marginBottom: 24 }}>
+        <div className="sad-kpi-card">
+          <div className="sad-kpi-val">{buyerAccounts.length}</div>
+          <div className="sad-kpi-label">Buyer Accounts</div>
+        </div>
+        <div className="sad-kpi-card">
+          <div className="sad-kpi-val">{trialGrants.filter((g) => g.type === 'trial_extension').length}</div>
+          <div className="sad-kpi-label">Trial Extensions</div>
+        </div>
+        <div className="sad-kpi-card">
+          <div className="sad-kpi-val">{trialGrants.filter((g) => g.type === 'promo_code').length}</div>
+          <div className="sad-kpi-label">Promo Codes Applied</div>
+        </div>
+      </div>
+
+      {/* Extend Trial form */}
+      <div className="sad-section">
+        <h3 className="sad-section-title">Extend Buyer Trial</h3>
+        <div className="fg-form">
+          <div className="fg-form-row">
+            <div className="fg-form-group" style={{ flex: 2 }}>
+              <label className="fg-label">Select Buyer Account</label>
+              <select className="fg-select" value={trialTargetCompany} onChange={(e) => setTrialTargetCompany(e.target.value)}>
+                <option value="">— Select account —</option>
+                {buyerAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.company || a.email} ({a.email})</option>
+                ))}
+              </select>
+            </div>
+            <div className="fg-form-group" style={{ flex: 1 }}>
+              <label className="fg-label">Extend By</label>
+              <select className="fg-select" value={trialExtendDays} onChange={(e) => setTrialExtendDays(Number(e.target.value))}>
+                {EXTEND_PERIODS.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="fg-form-group" style={{ flex: '0 0 auto', display: 'flex', alignItems: 'flex-end' }}>
+              <button
+                className="fg-grant-btn"
+                onClick={handleExtendTrial}
+                disabled={!trialTargetCompany}
+              >
+                Extend Trial
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Apply Promo Code */}
+      <div className="sad-section">
+        <h3 className="sad-section-title">Apply Promo Code</h3>
+        <div className="fg-form">
+          <div className="fg-form-row">
+            <div className="fg-form-group" style={{ flex: 2 }}>
+              <label className="fg-label">Select Buyer Account</label>
+              <select className="fg-select" value={trialTargetCompany} onChange={(e) => setTrialTargetCompany(e.target.value)}>
+                <option value="">— Select account —</option>
+                {buyerAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.company || a.email} ({a.email})</option>
+                ))}
+              </select>
+            </div>
+            <div className="fg-form-group" style={{ flex: 1 }}>
+              <label className="fg-label">Promo Code</label>
+              <input
+                type="text"
+                className="fg-select"
+                value={trialPromoCode}
+                onChange={(e) => setTrialPromoCode(e.target.value)}
+                placeholder="e.g. STREFEX30"
+                style={{ textTransform: 'uppercase' }}
+              />
+            </div>
+            <div className="fg-form-group" style={{ flex: '0 0 auto', display: 'flex', alignItems: 'flex-end' }}>
+              <button
+                className="fg-grant-btn"
+                onClick={handleApplyPromo}
+                disabled={!trialTargetCompany || !trialPromoCode.trim()}
+              >
+                Apply Code
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Available promo codes reference */}
+        <div style={{ marginTop: 16 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 8 }}>Available Promo Codes</h4>
+          <div className="sad-table-wrap">
+            <table className="sad-table" style={{ fontSize: 12 }}>
+              <thead>
+                <tr><th>Code</th><th>Plan</th><th>Duration</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                {Object.entries(PROMO_CODES).map(([code, cfg]) => (
+                  <tr key={code}>
+                    <td><code style={{ background: 'rgba(0,8,136,.06)', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>{code}</code></td>
+                    <td><span style={{ color: planColor(cfg.planId), fontWeight: 700, textTransform: 'capitalize' }}>{cfg.planId}</span></td>
+                    <td>{cfg.trialDays} days</td>
+                    <td>{cfg.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* History */}
+      <div className="sad-section">
+        <h3 className="sad-section-title">Trial & Promo History ({trialGrants.length})</h3>
+        {trialGrants.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 32, color: '#888', fontSize: 14 }}>No trial extensions or promo codes applied yet.</div>
+        ) : (
+          <div className="sad-table-wrap">
+            <table className="sad-table" style={{ fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Company</th>
+                  <th>Email</th>
+                  <th>Type</th>
+                  <th>Details</th>
+                  <th>New Expiry</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...trialGrants].reverse().map((g) => (
+                  <tr key={g.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(g.grantedAt)}</td>
+                    <td style={{ fontWeight: 600 }}>{g.company || '—'}</td>
+                    <td>{g.email}</td>
+                    <td>
+                      {g.type === 'trial_extension' && (
+                        <span style={{ background: '#e8f5e9', color: '#2e7d32', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: 11 }}>
+                          +{g.extraDays} days
+                        </span>
+                      )}
+                      {g.type === 'promo_code' && (
+                        <span style={{ background: 'rgba(0,8,136,.08)', color: '#000888', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: 11 }}>
+                          Promo: {g.promoCode}
+                        </span>
+                      )}
+                    </td>
+                    <td>{g.description || `Extension: ${g.extraDays} days`}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(g.newExpiresAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  )
+
   return (
     <AppLayout>
       <div className="sad-page">
@@ -2152,6 +2431,11 @@ export default function SuperAdminDashboard() {
           <button className={`sad-tab ${tab === 'accounts' ? 'active' : ''}`} onClick={() => setTab('accounts')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
             Accounts ({analytics.total})
+          </button>
+          <button className={`sad-tab ${tab === 'trials' ? 'active' : ''}`} onClick={() => setTab('trials')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Trials & Promos
+            {buyerAccounts.length > 0 && <span className="sad-tab-badge">{buyerAccounts.length}</span>}
           </button>
           <button className={`sad-tab ${tab === 'feature-grants' ? 'active' : ''}`} onClick={() => setTab('feature-grants')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -2191,6 +2475,7 @@ export default function SuperAdminDashboard() {
         {/* Tab content */}
         {tab === 'overview' && renderOverview()}
         {tab === 'accounts' && renderAccounts()}
+        {tab === 'trials' && renderTrialManagement()}
         {tab === 'feature-grants' && renderFeatureGrants()}
         {tab === 'transactions' && renderTransactions()}
         {tab === 'service-requests' && renderServiceRequests()}

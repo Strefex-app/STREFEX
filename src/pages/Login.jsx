@@ -1,17 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore } from '../store/settingsStore'
 import { useSubscriptionStore } from '../services/featureFlags'
-import { useAccountRegistry } from '../store/accountRegistry'
 import { useTranslation } from '../i18n/useTranslation'
 import authService from '../services/authService'
 import {
   isSuperadminEmail,
   validateSuperadminCredentials,
-  generate2FACode,
-  verify2FACode,
-  clear2FA,
 } from '../services/superadminAuth'
 import { analytics } from '../services/analytics'
 import './Login.css'
@@ -24,16 +20,10 @@ const Login = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // 2FA state for superadmin login
-  const [show2FA, setShow2FA] = useState(false)
-  const [twoFACode, setTwoFACode] = useState('')
-  const [generatedCode, setGeneratedCode] = useState('')
-  const [twoFAError, setTwoFAError] = useState('')
-  const [twoFATimer, setTwoFATimer] = useState(300)
-  const timerRef = useRef(null)
-
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const login = useAuthStore((state) => state.login)
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -50,29 +40,17 @@ const Login = () => {
     if (isAuthenticated) navigate('/main-menu', { replace: true })
   }, [isAuthenticated, navigate])
 
-  // Countdown timer for 2FA code expiry
   useEffect(() => {
-    if (!show2FA) return
-    setTwoFATimer(300)
-    timerRef.current = setInterval(() => {
-      setTwoFATimer((prev) => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current)
-          setTwoFAError('Code expired. Please try again.')
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-    return () => clearInterval(timerRef.current)
-  }, [show2FA])
-
-  const formatTimer = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+    if (searchParams.get('confirmed') === 'true') {
+      setInfo('Email confirmed! You can now sign in.')
+    }
+  }, [searchParams])
 
   /* ── Main login handler ──────────────────────────────────── */
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setInfo('')
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setError('Please enter a valid email address')
@@ -85,114 +63,58 @@ const Login = () => {
 
     const trimmedEmail = email.trim().toLowerCase()
 
-    // ── Superadmin login path — requires 2FA ──
+    // ── Superadmin login — client-side credential check, no 2FA ──
     if (isSuperadminEmail(trimmedEmail)) {
       if (!validateSuperadminCredentials(trimmedEmail, password)) {
         setError('Invalid credentials')
         return
       }
-      // Credentials valid — send 2FA code
-      const code = generate2FACode()
-      setGeneratedCode(code)
-      setTwoFACode('')
-      setTwoFAError('')
-      setShow2FA(true)
+      login({
+        role: 'superadmin',
+        user: {
+          email: trimmedEmail,
+          fullName: 'STREFEX Admin',
+          companyName: 'STREFEX',
+        },
+        tenant: {
+          id: 'strefex-platform',
+          name: 'STREFEX',
+          slug: 'strefex',
+        },
+      })
+      setPlan('enterprise', 'active')
+      setAccountType('buyer')
+      analytics.track('user_login', { method: 'superadmin', role: 'superadmin' })
+      navigate('/main-menu')
       return
     }
 
-    // ── Regular login path ──
+    // ── Regular login via Supabase / backend ──
     setLoading(true)
     try {
       await authService.loginWithEmail(email, password)
       navigate('/main-menu')
     } catch (err) {
-      if (err.status === 0 || err.message?.includes('Network error')) {
-        console.warn('[Login] Backend unreachable — using offline mode')
+      const msg = err.message || err.detail || ''
 
-        const registry = useAccountRegistry.getState().accounts
-        let role = 'user'
-        const matchAccount = registry.find((a) => a.email?.toLowerCase() === trimmedEmail)
-        if (matchAccount) {
-          role = 'admin'
-        } else {
-          const asMember = registry.find((a) =>
-            a.teamMembers?.some((m) => m.email?.toLowerCase() === trimmedEmail)
-          )
-          if (asMember) {
-            const member = asMember.teamMembers.find((m) => m.email?.toLowerCase() === trimmedEmail)
-            role = member?.role || 'user'
-          }
-        }
-        // superadmin is NEVER assigned via regular login
-        if (role === 'superadmin') role = 'admin'
-
-        login({
-          role,
-          user: {
-            email: trimmedEmail,
-            fullName: matchAccount?.contactName || email.split('@')[0] || 'User',
-            companyName: matchAccount?.company || email.split('@')[1]?.split('.')[0] || 'Company',
-          },
-        })
-        analytics.track('user_login', { method: 'offline', role })
-        navigate('/main-menu')
+      if (err.code === 'email_not_confirmed' || msg.toLowerCase().includes('email not confirmed') || msg.toLowerCase().includes('verify your email')) {
+        setError('Please verify your email before logging in.')
+      } else if (err.code === 'invalid_credentials' || msg.toLowerCase().includes('invalid login')) {
+        setError('Invalid email or password.')
+      } else if (err.status === 0 || msg.includes('Network error') || msg.includes('Failed to fetch')) {
+        setError('Unable to reach the server. Please check your internet connection and try again.')
       } else {
-        setError(err.detail || err.message || 'Login failed. Please try again.')
+        setError(msg || 'Login failed. Please try again.')
       }
     } finally {
       setLoading(false)
     }
   }
 
-  /* ── 2FA verification for superadmin ─────────────────────── */
-  const handle2FASubmit = (e) => {
-    e.preventDefault()
-    setTwoFAError('')
-
-    if (!twoFACode || twoFACode.length !== 6) {
-      setTwoFAError('Please enter the 6-digit confirmation code')
-      return
-    }
-
-    if (!verify2FACode(twoFACode)) {
-      setTwoFAError('Invalid or expired code. Please try again.')
-      return
-    }
-
-    // 2FA verified — complete superadmin login
-    clearInterval(timerRef.current)
-    login({
-      role: 'superadmin',
-      user: {
-        email: email.trim().toLowerCase(),
-        fullName: 'STREFEX Admin',
-        companyName: 'STREFEX',
-      },
-      tenant: {
-        id: 'strefex-platform',
-        name: 'STREFEX',
-        slug: 'strefex',
-      },
-    })
-    setPlan('enterprise', 'active')
-    setAccountType('buyer')
-    analytics.track('user_login', { method: 'superadmin_2fa', role: 'superadmin' })
-    setShow2FA(false)
-    navigate('/main-menu')
-  }
-
-  const handleCancel2FA = () => {
-    clear2FA()
-    clearInterval(timerRef.current)
-    setShow2FA(false)
-    setTwoFACode('')
-    setGeneratedCode('')
-    setTwoFAError('')
-  }
-
   /* ── Preview login — limited session, read-only ──────────── */
   const handlePreviewLogin = async () => {
     setError('')
+    setInfo('')
     setLoading(true)
     try {
       await authService.loginWithEmail(PREVIEW_EMAIL, 'preview123')
@@ -229,6 +151,7 @@ const Login = () => {
       return
     }
     setError('')
+    setInfo('')
     setLoading(true)
     try {
       await authService.loginWithGoogle()
@@ -261,6 +184,18 @@ const Login = () => {
                   <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
                 {error}
+              </div>
+            )}
+            {info && (
+              <div className="login-info" role="status" style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px',
+                borderRadius: 8, background: '#e8f5e9', color: '#2e7d32', fontSize: 14,
+                marginBottom: 16, border: '1px solid #c8e6c9'
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                  <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {info}
               </div>
             )}
             <div className="form-group">
@@ -350,78 +285,6 @@ const Login = () => {
           )}
         </div>
       </div>
-
-      {/* ── 2FA Verification Modal for Superadmin ─────────── */}
-      {show2FA && (
-        <div className="login-2fa-overlay" onClick={handleCancel2FA}>
-          <div className="login-2fa-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="login-2fa-header">
-              <div className="login-2fa-icon">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="#000888" strokeWidth="2"/>
-                  <path d="M9 12l2 2 4-4" stroke="#000888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-              <h2 className="login-2fa-title">Two-Factor Authentication</h2>
-              <p className="login-2fa-subtitle">
-                Enter the 6-digit confirmation code below for<br/>
-                <strong>{email}</strong>
-              </p>
-            </div>
-
-            <form onSubmit={handle2FASubmit} className="login-2fa-form">
-              {twoFAError && (
-                <div className="login-error" role="alert" style={{ marginBottom: 16 }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-                    <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                  </svg>
-                  {twoFAError}
-                </div>
-              )}
-
-              <div className="login-2fa-code-wrap">
-                <input
-                  type="text"
-                  className="login-2fa-input"
-                  value={twoFACode}
-                  onChange={(e) => setTwoFACode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="000000"
-                  maxLength={6}
-                  autoFocus
-                  autoComplete="one-time-code"
-                />
-                <span className={`login-2fa-timer ${twoFATimer < 60 ? 'login-2fa-timer-warn' : ''}`}>
-                  {formatTimer(twoFATimer)}
-                </span>
-              </div>
-
-              <div className="login-2fa-demo-hint">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-                  <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-                <span>
-                  Your confirmation code: <strong className="login-2fa-demo-code">{generatedCode}</strong>
-                </span>
-              </div>
-
-              <div className="login-2fa-actions">
-                <button type="button" className="login-2fa-btn-cancel" onClick={handleCancel2FA}>
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="login-2fa-btn-verify"
-                  disabled={twoFACode.length !== 6 || twoFATimer === 0}
-                >
-                  Verify & Sign In
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

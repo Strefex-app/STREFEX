@@ -35,8 +35,10 @@ export const BILLING_DISCOUNT = {
  *   ENTERPRISE:    All Premium + Enterprise Mgmt, Procurement, Contracts, Spend Analysis,
  *                  Compliance, AI Insights, ERP Integrations, Templates, Audit Logs, 500 GB / user
  *
- * BUYER (starts from Basic — no Free plan):
+ * BUYER (starts from Basic — free 30-day trial, then paid):
  *   BASIC:         5 users, 10 projects, 1 industry, 1 equipment category, 5 GB storage
+ *                  New buyers get a FREE 30-day trial at Basic tier.
+ *                  Superadmin can extend the trial or grant promo codes.
  *   STANDARD:      25 users, 50 projects, 3 industries, 3 equipment categories, 50 GB storage
  *   PREMIUM:       Unlimited everything, Cost + Production Management, 100 GB storage / user
  *   ENTERPRISE:    All Premium + full buyer suite (Procurement, Contracts, Spend, Compliance,
@@ -433,9 +435,12 @@ export function getEffectiveLimits(planId, accountType) {
   return { ...base, executiveSummary: false }
 }
 
+/** Default buyer trial duration in days. */
+export const BUYER_TRIAL_DAYS = 30
+
 /**
  * Get plans available for a given account type.
- * Buyers cannot use the Free plan.
+ * Buyers start from Basic (the "start" / free plan is seller-only).
  * Sellers and Service Providers can use all plans (including Free).
  */
 export function getPlansForAccountType(accountType) {

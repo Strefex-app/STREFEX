@@ -114,18 +114,27 @@ const authService = {
     // ── Supabase path ──
     if (isSupabaseConfigured) {
       const { session, user } = await supabaseAuth.signIn(email, password)
+
+      // Block login for users whose email is not yet confirmed
+      if (user && !user.email_confirmed_at) {
+        await supabaseAuth.signOut().catch(() => {})
+        const err = new Error('Please verify your email before logging in.')
+        err.code = 'email_not_confirmed'
+        throw err
+      }
+
       const profile = await profilesService.getMyProfile()
       await storeSupabaseSession(session, profile)
       return { session, user, profile }
     }
 
-    // ── Firebase path ──
+    // ── Firebase path (sign-in only — never auto-create) ──
     if (isFirebaseConfigured) {
       try {
         await signInWithEmailAndPassword(firebaseAuth, email, password)
       } catch (fbError) {
         if (fbError.code === 'auth/user-not-found') {
-          await createUserWithEmailAndPassword(firebaseAuth, email, password)
+          throw new Error('No account found with this email. Please register first.')
         } else if (fbError.code === 'auth/invalid-credential' || fbError.code === 'auth/wrong-password') {
           throw new Error('Invalid email or password')
         } else {
@@ -189,37 +198,49 @@ const authService = {
     if (isSupabaseConfigured) {
       const signUpData = await supabaseAuth.signUp({ email, password, fullName, phone })
       const user = signUpData?.user
+      const session = signUpData?.session
 
+      // When Supabase has "Confirm email" enabled, session is null until the
+      // user clicks the link.  We still create the company row so it's ready
+      // when they confirm.
       if (user) {
-        // Create the company
         const companySlug = (company || fullName || email.split('@')[0])
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-|-$/g, '')
-        const newCompany = await companiesService.create({
-          name: company || fullName || email.split('@')[0],
-          slug: `${companySlug}-${Date.now().toString(36)}`,
-          email: email,
-          phone: phone || null,
-          account_type: accountType,
-          plan: selectedPlan,
-          status: 'active',
-        })
 
-        // Link profile to company and set admin role
-        if (newCompany) {
-          await profilesService.updateProfile({
-            company_id: newCompany.id,
-            full_name: fullName,
+        try {
+          const newCompany = await companiesService.create({
+            name: company || fullName || email.split('@')[0],
+            slug: `${companySlug}-${Date.now().toString(36)}`,
+            email: email,
             phone: phone || null,
-            role: 'admin',
-            email_verified: false,
-            phone_verified: false,
+            account_type: accountType,
+            plan: selectedPlan,
+            status: 'active',
           })
+
+          if (newCompany) {
+            await profilesService.updateProfile({
+              company_id: newCompany.id,
+              full_name: fullName,
+              phone: phone || null,
+              role: 'admin',
+              email_verified: false,
+              phone_verified: false,
+            })
+          }
+        } catch (companyErr) {
+          console.warn('[authService.register] Company/profile setup deferred — will complete after email confirmation:', companyErr.message)
         }
 
-        // Sign in immediately
-        const { session } = await supabaseAuth.signIn(email, password)
+        // No session means email confirmation is pending
+        if (!session) {
+          analytics.track('user_register', { method: 'supabase', plan: selectedPlan, accountType, awaitingConfirmation: true })
+          return { user, emailConfirmationPending: true }
+        }
+
+        // Session exists — email confirmation is disabled or auto-confirmed
         const profile = await profilesService.getMyProfile()
         await storeSupabaseSession(session, profile)
 
@@ -333,9 +354,18 @@ const authService = {
 
   /**
    * Initialize auth — restore session on app load.
+   * If no valid session exists, clears the Zustand store to prevent
+   * stale localStorage state from granting access.
    */
   async initSession() {
-    if (!isSupabaseConfigured) return null
+    if (!isSupabaseConfigured) {
+      // Without Supabase, check if the stored token has expired
+      const { expiresAt, isAuthenticated } = useAuthStore.getState()
+      if (isAuthenticated && expiresAt && Date.now() > expiresAt) {
+        useAuthStore.getState().logout()
+      }
+      return null
+    }
     try {
       const session = await supabaseAuth.getSession()
       if (session?.user) {
@@ -345,6 +375,11 @@ const authService = {
       }
     } catch {
       // Silent — no session to restore
+    }
+
+    // No valid Supabase session — clear any stale auth state
+    if (useAuthStore.getState().isAuthenticated) {
+      useAuthStore.getState().logout()
     }
     return null
   },

@@ -19,11 +19,13 @@ export const supabaseAuth = {
    */
   async signUp({ email, password, fullName, phone }) {
     if (!isSupabaseConfigured) return null
+    const redirectTo = `${window.location.origin}/login?confirmed=true`
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { full_name: fullName, phone },
+        emailRedirectTo: redirectTo,
       },
     })
     if (error) throw error
