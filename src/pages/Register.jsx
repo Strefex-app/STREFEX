@@ -27,6 +27,22 @@ const CARD_ELEMENT_OPTIONS = {
   },
 }
 
+function getReadableErrorMessage(err, fallback) {
+  if (!err) return fallback
+  if (typeof err === 'string' && err.trim()) return err
+
+  const detail = typeof err?.detail === 'string' ? err.detail.trim() : ''
+  if (detail && detail !== '{}') return detail
+
+  const message = typeof err?.message === 'string' ? err.message.trim() : ''
+  if (message && message !== '{}') return message
+
+  const errorDescription = typeof err?.error_description === 'string' ? err.error_description.trim() : ''
+  if (errorDescription && errorDescription !== '{}') return errorDescription
+
+  return fallback
+}
+
 /* ── Inner form (needs Stripe context) ───────────────────── */
 function RegisterForm() {
   const [step, setStep] = useState(1) // 1 = account, 2 = plan, 3 = check-email
@@ -142,7 +158,7 @@ function RegisterForm() {
     setStep(2)
   }
 
-  /* ── Step 2 submit — register via Supabase ─────────────── */
+  /* ── Step 2 submit — send verification link via API ────── */
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -154,115 +170,32 @@ function RegisterForm() {
 
     setLoading(true)
     try {
-      const result = await authService.register({
-        fullName: fullName.trim(),
-        email: email.trim().toLowerCase(),
-        password,
-        phone: phone.trim(),
-        company: company.trim() || undefined,
-        selectedPlan,
-        accountType,
+      const response = await fetch('/api/send-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       })
 
-      // If Supabase returned a user but no session, email confirmation is pending
-      if (result?.emailConfirmationPending) {
-        setStep(3)
-        analytics.track('user_register', { method: 'supabase', plan: selectedPlan, accountType, awaitingConfirmation: true })
-        return
-      }
-
-      // If paid plan, create Stripe subscription
-      if (isPaidPlan && stripe && elements) {
-        const cardElement = elements.getElement(CardElement)
-        if (!cardElement) {
-          setError('Card element not found. Please refresh and try again.')
-          setLoading(false)
-          return
-        }
-
-        const { error: pmError, paymentMethod } = await stripe.createPaymentMethod({
-          type: 'card',
-          card: cardElement,
-          billing_details: {
-            name: fullName.trim(),
-            email: email.trim().toLowerCase(),
-          },
-        })
-
-        if (pmError) {
-          setError(pmError.message)
-          setLoading(false)
-          return
-        }
-
+      if (!response.ok) {
+        let payload = null
         try {
-          const subResult = await billingApi.createSubscription({
-            plan_id: selectedPlan,
-            payment_method_id: paymentMethod.id,
-          })
-
-          if (subResult.status === 'active' || subResult.status === 'trialing') {
-            setPlan(selectedPlan, subResult.status)
-            analytics.track('subscription_created_at_signup', {
-              plan: selectedPlan,
-              status: subResult.status,
-            })
-          } else if (subResult.client_secret) {
-            const { error: confirmError } = await stripe.confirmCardPayment(subResult.client_secret)
-            if (confirmError) {
-              setError(`Payment requires confirmation: ${confirmError.message}`)
-              setPlan('start')
-            } else {
-              setPlan(selectedPlan, 'active')
-              analytics.track('subscription_created_at_signup', {
-                plan: selectedPlan,
-                status: 'active',
-                required_3ds: true,
-              })
-            }
-          }
-        } catch (subErr) {
-          console.warn('[Register] Subscription creation failed:', subErr.message)
-          setPlan('start')
-          setError(`Account created! Payment failed: ${subErr.detail || subErr.message}. You can upgrade from Plans page.`)
-          setTimeout(() => navigate('/main-menu'), 3000)
-          return
+          payload = await response.json()
+        } catch {
+          payload = null
         }
-      } else if (isBuyerBasicTrial) {
-        useSubscriptionStore.getState().startBuyerTrial(BUYER_TRIAL_DAYS)
-      } else {
-        setPlan(selectedPlan)
+        const err = new Error(payload?.error || `HTTP ${response.status}`)
+        err.status = response.status
+        throw err
       }
 
-      setStoreAccountType(accountType)
-
-      try {
-        useAccountRegistry.getState().registerAccount({
-          id: `reg-${Date.now()}`,
-          company: company.trim() || fullName.trim(),
-          email: email.trim().toLowerCase(),
-          phone: phone.trim(),
-          contactName: fullName.trim(),
-          accountType,
-          plan: selectedPlan,
-          status: 'active',
-          industries: [],
-          categories: {},
-          registeredAt: new Date().toISOString(),
-          validUntil: selectedPlan === 'start' ? null : new Date(Date.now() + 365 * 86400000).toISOString(),
-          agreementAcceptedAt: new Date().toISOString(),
-          emailVerified: true,
-          phoneVerified: true,
-        })
-      } catch { /* silent */ }
-
-      navigate('/main-menu')
+      analytics.track('user_register', { method: 'verification_link', plan: selectedPlan, accountType, awaitingConfirmation: true })
+      setStep(3)
     } catch (err) {
-      const msg = err?.detail || err?.message || ''
+      const msg = getReadableErrorMessage(err, '')
       if (err?.code === 'auth_service_unavailable' || err?.status === 404 || msg.includes('HTTP 404')) {
         setError('Registration service is not configured for this deployment yet. Please contact admin to finish Vercel environment setup.')
       } else {
-        setError(msg || 'Registration failed. Please try again.')
+        setError(getReadableErrorMessage(err, 'Registration failed. Please try again.'))
       }
     } finally {
       setLoading(false)

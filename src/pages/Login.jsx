@@ -16,6 +16,22 @@ const PREVIEW_ENABLED = import.meta.env.VITE_PREVIEW_LOGIN_ENABLED === 'true'
 const PREVIEW_EMAIL = 'preview@strefex.com'
 const PREVIEW_SESSION_MINUTES = 10
 
+function getReadableErrorMessage(err, fallback) {
+  if (!err) return fallback
+  if (typeof err === 'string' && err.trim()) return err
+
+  const detail = typeof err?.detail === 'string' ? err.detail.trim() : ''
+  if (detail && detail !== '{}') return detail
+
+  const message = typeof err?.message === 'string' ? err.message.trim() : ''
+  if (message && message !== '{}') return message
+
+  const errorDescription = typeof err?.error_description === 'string' ? err.error_description.trim() : ''
+  if (errorDescription && errorDescription !== '{}') return errorDescription
+
+  return fallback
+}
+
 const Login = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -95,7 +111,7 @@ const Login = () => {
       await authService.loginWithEmail(email, password)
       navigate('/main-menu')
     } catch (err) {
-      const msg = err.message || err.detail || ''
+      const msg = getReadableErrorMessage(err, '')
 
       if (err.code === 'email_not_confirmed' || msg.toLowerCase().includes('email not confirmed') || msg.toLowerCase().includes('verify your email')) {
         setError('Please verify your email before logging in.')
@@ -106,7 +122,7 @@ const Login = () => {
       } else if (err.status === 0 || msg.includes('Network error') || msg.includes('Failed to fetch')) {
         setError('Unable to reach the server. Please check your internet connection and try again.')
       } else {
-        setError(msg || 'Login failed. Please try again.')
+        setError(getReadableErrorMessage(err, 'Login failed. Please try again.'))
       }
     } finally {
       setLoading(false)
