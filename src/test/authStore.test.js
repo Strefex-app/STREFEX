@@ -66,16 +66,22 @@ describe('Auth Store', () => {
     expect(store.hasRole('superadmin')).toBe(false) // admin < superadmin
   })
 
-  it('should check superadmin role correctly', () => {
-    useAuthStore.getState().login({ role: 'superadmin' })
+  it('should prevent superadmin escalation without verified superadmin email', () => {
+    useAuthStore.getState().login({
+      role: 'superadmin',
+      user: { id: '1', email: 'user@test.com', fullName: 'User', role: 'superadmin' },
+    })
     const store = useAuthStore.getState()
 
-    expect(store.isSuperAdmin()).toBe(true)
-    expect(store.isAdmin()).toBe(true)     // superadmin counts as admin
-    expect(store.isManager()).toBe(true)   // superadmin counts as manager
+    // Security hardening: superadmin is only allowed for configured STREFEX email.
+    // Unverified attempts are downgraded to admin.
+    expect(store.role).toBe('admin')
+    expect(store.isSuperAdmin()).toBe(false)
+    expect(store.isAdmin()).toBe(true)
+    expect(store.isManager()).toBe(true)
     expect(store.hasRole('user')).toBe(true)
     expect(store.hasRole('admin')).toBe(true)
-    expect(store.hasRole('superadmin')).toBe(true)
+    expect(store.hasRole('superadmin')).toBe(false)
   })
 
   it('should validate token expiry', () => {
