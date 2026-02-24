@@ -6,10 +6,9 @@ import { useSettingsStore } from '../store/settingsStore'
 import { useSubscriptionStore } from '../services/featureFlags'
 import { useTranslation } from '../i18n/useTranslation'
 import { getStripe, isStripeConfigured } from '../config/stripe'
-import { billingApi } from '../services/api'
 import authService from '../services/authService'
+import { supabase } from '../config/supabase'
 import { PLANS, ACCOUNT_TYPES, getPlansForAccountType, getPlanPrice, getPlanFeatures, BUYER_TRIAL_DAYS } from '../services/stripeService'
-import { analytics } from '../services/analytics'
 import { useAccountRegistry } from '../store/accountRegistry'
 import './Login.css'
 import './Register.css'
@@ -25,22 +24,6 @@ const CARD_ELEMENT_OPTIONS = {
     },
     invalid: { color: '#e74c3c' },
   },
-}
-
-function getReadableErrorMessage(err, fallback) {
-  if (!err) return fallback
-  if (typeof err === 'string' && err.trim()) return err
-
-  const detail = typeof err?.detail === 'string' ? err.detail.trim() : ''
-  if (detail && detail !== '{}') return detail
-
-  const message = typeof err?.message === 'string' ? err.message.trim() : ''
-  if (message && message !== '{}') return message
-
-  const errorDescription = typeof err?.error_description === 'string' ? err.error_description.trim() : ''
-  if (errorDescription && errorDescription !== '{}') return errorDescription
-
-  return fallback
 }
 
 /* ── Inner form (needs Stripe context) ───────────────────── */
@@ -158,7 +141,7 @@ function RegisterForm() {
     setStep(2)
   }
 
-  /* ── Step 2 submit — send verification link via API ────── */
+  /* ── Step 2 submit — direct Supabase signup ─────────────── */
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -170,26 +153,34 @@ function RegisterForm() {
 
     setLoading(true)
     try {
-      const result = await authService.register({
-        fullName: fullName.trim(),
-        email: email.trim().toLowerCase(),
-        password,
-        phone: phone.trim(),
-        company: company.trim() || undefined,
-        selectedPlan,
-        accountType,
-      })
-
-      if (result?.emailConfirmationPending) {
-        analytics.track('user_register', { method: 'supabase', plan: selectedPlan, accountType, awaitingConfirmation: true })
-        setStep(3)
+      if (!supabase) {
+        alert('Supabase is not configured')
         return
       }
 
-      navigate('/main-menu')
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+          },
+          emailRedirectTo: window.location.origin + '/welcome',
+        },
+      })
+
+      if (error) {
+        console.log('Error from Supabase:', error.message)
+        alert('Something went wrong: ' + error.message)
+        return
+      }
+
+      console.log('Account created! User ID:', data.user?.id)
+      alert('Check your email to confirm! (Name should now save)')
+      setStep(3)
     } catch (err) {
-      const msg = getReadableErrorMessage(err, '')
-      setError(getReadableErrorMessage(err, msg || 'Registration failed. Please try again.'))
+      console.log('Big error:', err)
+      alert('Very unexpected error – look in console')
     } finally {
       setLoading(false)
     }
