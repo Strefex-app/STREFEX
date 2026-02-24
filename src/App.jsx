@@ -9,6 +9,7 @@ import UpgradePrompt from './components/UpgradePrompt'
 import PWAUpdateBanner from './components/PWAUpdateBanner'
 import AppLayout from './components/AppLayout'
 import authService from './services/authService'
+import { supabase } from './config/supabase'
 
 /* ── Page imports ────────────────────────────────────────── */
 import Login from './pages/Login'
@@ -125,6 +126,10 @@ function PlanGate({ feature, planName, children, requiredRole }) {
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const [sessionChecked, setSessionChecked] = useState(false)
+
+  useEffect(() => {
+    supabase.auth.getSession();
+  }, []);
 
   useEffect(() => {
     authService.initSession().finally(() => setSessionChecked(true))
