@@ -26,7 +26,6 @@ import { authApi } from './api'
 import { useAuthStore } from '../store/authStore'
 import { analytics } from './analytics'
 import { isSuperadminEmail } from './superadminAuth'
-import env from '../config/env'
 
 const googleProvider = isFirebaseConfigured ? new GoogleAuthProvider() : null
 
@@ -35,14 +34,6 @@ const googleProvider = isFirebaseConfigured ? new GoogleAuthProvider() : null
 function capRole(role, email) {
   if (role === 'superadmin' && !isSuperadminEmail(email)) return 'admin'
   return role || 'user'
-}
-
-function createAuthServiceUnavailableError() {
-  const err = new Error(
-    'Authentication service is not configured for this deployment. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel and redeploy.'
-  )
-  err.code = 'auth_service_unavailable'
-  return err
 }
 
 /**
@@ -152,21 +143,12 @@ const authService = {
       }
     }
 
-    // If running in production without Supabase/Firebase, do not attempt
-    // fallback auth against missing /api routes (avoids raw 404 login failures).
-    if (env.IS_PROD && !isSupabaseConfigured && !isFirebaseConfigured) {
-      throw createAuthServiceUnavailableError()
-    }
-
     // ── Backend JWT path ──
     try {
       const response = await authApi.login(email, password, tenantSlug)
       storeSession(response)
       return response
     } catch (err) {
-      if (err?.status === 404) {
-        throw createAuthServiceUnavailableError()
-      }
       if (isFirebaseConfigured && firebaseAuth.currentUser) {
         await firebaseSignOut(firebaseAuth).catch(() => {})
       }
@@ -281,12 +263,6 @@ const authService = {
       }
     }
 
-    // If running in production without Supabase/Firebase, do not attempt
-    // fallback register against missing /api routes (avoids raw 404 errors).
-    if (env.IS_PROD && !isSupabaseConfigured && !isFirebaseConfigured) {
-      throw createAuthServiceUnavailableError()
-    }
-
     // ── Backend path ──
     try {
       const response = await authApi.register({
@@ -304,9 +280,6 @@ const authService = {
       })
       return response
     } catch (err) {
-      if (err?.status === 404) {
-        throw createAuthServiceUnavailableError()
-      }
       if (isFirebaseConfigured && firebaseAuth.currentUser) {
         await firebaseSignOut(firebaseAuth).catch(() => {})
       }

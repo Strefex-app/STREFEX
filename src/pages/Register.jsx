@@ -170,33 +170,26 @@ function RegisterForm() {
 
     setLoading(true)
     try {
-      const response = await fetch('/api/send-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      const result = await authService.register({
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        phone: phone.trim(),
+        company: company.trim() || undefined,
+        selectedPlan,
+        accountType,
       })
 
-      if (!response.ok) {
-        let payload = null
-        try {
-          payload = await response.json()
-        } catch {
-          payload = null
-        }
-        const err = new Error(payload?.error || `HTTP ${response.status}`)
-        err.status = response.status
-        throw err
+      if (result?.emailConfirmationPending) {
+        analytics.track('user_register', { method: 'supabase', plan: selectedPlan, accountType, awaitingConfirmation: true })
+        setStep(3)
+        return
       }
 
-      analytics.track('user_register', { method: 'verification_link', plan: selectedPlan, accountType, awaitingConfirmation: true })
-      setStep(3)
+      navigate('/main-menu')
     } catch (err) {
       const msg = getReadableErrorMessage(err, '')
-      if (err?.code === 'auth_service_unavailable' || err?.status === 404 || msg.includes('HTTP 404')) {
-        setError('Registration service is not configured for this deployment yet. Please contact admin to finish Vercel environment setup.')
-      } else {
-        setError(getReadableErrorMessage(err, 'Registration failed. Please try again.'))
-      }
+      setError(getReadableErrorMessage(err, msg || 'Registration failed. Please try again.'))
     } finally {
       setLoading(false)
     }
