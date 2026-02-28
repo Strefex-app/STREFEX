@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { useUserStore } from '../store/userStore'
 import { useSettingsStore } from '../store/settingsStore'
 import { useSubscriptionStore } from '../services/featureFlags'
 import { useTranslation } from '../i18n/useTranslation'
@@ -53,7 +52,7 @@ export default function AppLayout({ children }) {
   const logout = useAuthStore((state) => state.logout)
   const role = useAuthStore((state) => state.role)
   const hasRole = useAuthStore((state) => state.hasRole)
-  const user = useUserStore((state) => state.user)
+  const user = useAuthStore((state) => state.user)
   const theme = useSettingsStore((s) => s.theme)
   const { t } = useTranslation()
 
@@ -103,7 +102,8 @@ export default function AppLayout({ children }) {
     navigate('/login')
   }
 
-  const initials = (user?.name || 'User').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  const displayName = user?.fullName || user?.name || user?.email || 'User'
+  const initials = displayName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
   const roleLabels = { superadmin: 'Super Admin', auditor_external: 'Auditor (External)', admin: 'Admin', auditor_internal: 'Auditor (Internal)', manager: 'Manager', user: 'User' }
   const roleLabel = roleLabels[role] || 'User'
 

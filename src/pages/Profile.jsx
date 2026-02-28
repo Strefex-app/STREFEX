@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 /* tesseract.js loaded dynamically only when OCR is triggered */
-import { useUserStore } from '../store/userStore'
 import { useAuthStore } from '../store/authStore'
 import { useSubscriptionStore, useTier, TIERS } from '../services/featureFlags'
 import { getPlanById, getEffectiveLimits } from '../services/stripeService'
@@ -265,7 +264,8 @@ const CONTACTS_KEY = 'strefex-profile-contacts'
 
 const Profile = () => {
   const navigate = useNavigate()
-  const user = useUserStore((s) => s.user)
+  const user = useAuthStore((s) => s.user)
+  const tenant = useAuthStore((s) => s.tenant)
   const { t: tr } = useTranslation()
 
   /* ── Auth & subscription info ─────────────────────────────── */
@@ -554,8 +554,8 @@ const Profile = () => {
                 </svg>
               </div>
               <div className="prof-header-info">
-                <h2 className="prof-name">{user?.name || 'User'}</h2>
-                <p className="prof-role">{user?.companyName || ''}</p>
+                <h2 className="prof-name">{user?.fullName || user?.name || 'User'}</h2>
+                <p className="prof-role">{tenant?.name || ''}</p>
               </div>
             </div>
 
@@ -572,7 +572,7 @@ const Profile = () => {
                 </div>
                 <div className="prof-info-item full">
                   <span className="prof-info-label">Company Address</span>
-                  <span className="prof-info-value">{user?.companyAddress || '—'}</span>
+                  <span className="prof-info-value">{tenant?.metadata?.address || '—'}</span>
                 </div>
               </div>
             </div>
@@ -630,7 +630,7 @@ const Profile = () => {
               <div className="prof-info-grid">
                 <div className="prof-info-item">
                   <span className="prof-info-label">Company</span>
-                  <span className="prof-info-value">{user?.companyName || '—'}</span>
+                  <span className="prof-info-value">{tenant?.name || '—'}</span>
                 </div>
                 <div className="prof-info-item">
                   <span className="prof-info-label">Domain</span>

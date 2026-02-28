@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AppLayout from '../components/AppLayout'
 import { useProjectStore } from '../store/projectStore'
-import { useUserStore } from '../store/userStore'
+import { useAuthStore } from '../store/authStore'
 import { useLimit } from '../services/featureFlags'
 /* jspdf & html2canvas loaded dynamically only when exporting PDF */
 import '../styles/app-page.css'
@@ -69,7 +69,7 @@ const ProjectManagement = () => {
   const calcEndDate = useProjectStore((s) => s.calcEndDate)
   const addDays = useProjectStore((s) => s.addDays)
 
-  const currentUser = useUserStore((s) => s.user)
+  const currentUser = useAuthStore((s) => s.user)
   const currentEmail = currentUser?.email || ''
   const projects = useMemo(() => (storeProjects || []).filter((p) => !p.createdBy || p.createdBy === currentEmail), [storeProjects, currentEmail])
   const addProject = (data) => _addProject({ ...data, createdBy: currentEmail })

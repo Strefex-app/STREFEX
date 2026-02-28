@@ -80,6 +80,68 @@ async function storeSupabaseSession(session, profile) {
   }
 }
 
+async function syncProfileFromRegistrationMetadata(user, profile) {
+  if (!user) return profile
+
+  const md = user.user_metadata || {}
+  const hasRegistrationMetadata = Boolean(md.tier || md.account_type || md.company_name || md.industry)
+  if (!hasRegistrationMetadata) return profile
+
+  const fullName = (md.full_name || profile?.full_name || '').trim()
+  const phone = md.phone || profile?.phone || null
+
+  let companyId = profile?.company_id || null
+  if (!companyId) {
+    const companyName = (md.company_name || fullName || user.email?.split('@')[0] || 'Company').trim()
+    const slugBase = companyName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+    try {
+      const created = await companiesService.create({
+        name: companyName,
+        slug: `${slugBase}-${Date.now().toString(36)}`,
+        email: user.email,
+        phone: phone || null,
+        account_type: md.account_type || 'seller',
+        plan: md.tier || 'free',
+        status: 'active',
+      })
+      companyId = created?.id || null
+    } catch {
+      // Leave company_id as-is if company creation fails; profile still updates.
+    }
+  }
+
+  const metadata = {
+    ...(profile?.metadata || {}),
+    account_type: md.account_type || profile?.metadata?.account_type || null,
+    industry: md.industry || profile?.metadata?.industry || null,
+    tier: md.tier || profile?.metadata?.tier || 'free',
+  }
+
+  const nextRole = companyId ? 'admin' : (profile?.role || 'user')
+  const metadataChanged = JSON.stringify(profile?.metadata || {}) !== JSON.stringify(metadata)
+  const needsUpdate = !profile
+    || profile.full_name !== fullName
+    || (profile.phone || null) !== (phone || null)
+    || profile.company_id !== companyId
+    || profile.role !== nextRole
+    || metadataChanged
+
+  if (!needsUpdate) return profile
+
+  await profilesService.updateProfile({
+    company_id: companyId,
+    full_name: fullName || null,
+    phone: phone || null,
+    role: nextRole,
+    metadata,
+  })
+
+  return profilesService.getMyProfile()
+}
+
 /**
  * After successful legacy (Firebase/backend) authentication, store the session.
  */
@@ -141,7 +203,8 @@ const authService = {
         await createFreeSubscription({ userId: user.id, industry: metaIndustry }).catch(() => {})
       }
 
-      const profile = await profilesService.getMyProfile()
+      const rawProfile = await profilesService.getMyProfile()
+      const profile = await syncProfileFromRegistrationMetadata(user, rawProfile)
       await storeSupabaseSession(session, profile)
       return { session, user, profile }
     }
@@ -434,7 +497,8 @@ const authService = {
     try {
       const session = await supabaseAuth.getSession()
       if (session?.user) {
-        const profile = await profilesService.getMyProfile()
+        const rawProfile = await profilesService.getMyProfile()
+        const profile = await syncProfileFromRegistrationMetadata(session.user, rawProfile)
         await storeSupabaseSession(session, profile)
         await useIndustrySubscriptionStore.getState().loadActiveSubscriptions(session.user.id)
         return { session, profile }
