@@ -17,7 +17,7 @@ export const supabaseAuth = {
    * Sign up with email + password.
    * Creates a Supabase auth user; the DB trigger auto-creates the profile.
    */
-  async signUp({ email, password, fullName, phone }) {
+  async signUp({ email, password, fullName, phone, metadata = {} }) {
     if (!isSupabaseConfigured) return null
     const redirectTo = `${window.location.origin}/login?confirmed=true`
     const { data, error } = await supabase.auth.signUp({
@@ -27,6 +27,7 @@ export const supabaseAuth = {
         data: {
           full_name: (fullName || '').trim(),
           phone,
+          ...metadata,
         },
         emailRedirectTo: redirectTo,
       },

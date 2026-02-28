@@ -1,30 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import { Elements } from '@stripe/react-stripe-js'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore } from '../store/settingsStore'
 import { useSubscriptionStore } from '../services/featureFlags'
 import { useTranslation } from '../i18n/useTranslation'
 import { getStripe, isStripeConfigured } from '../config/stripe'
 import authService from '../services/authService'
-import { supabase } from '../config/supabase'
-import { PLANS, ACCOUNT_TYPES, getPlansForAccountType, getPlanPrice, getPlanFeatures, BUYER_TRIAL_DAYS } from '../services/stripeService'
-import { useAccountRegistry } from '../store/accountRegistry'
+import stripeService, { PLANS, ACCOUNT_TYPES, getPlansForAccountType, getPlanPrice, getPlanFeatures, BUYER_TRIAL_DAYS } from '../services/stripeService'
 import './Login.css'
 import './Register.css'
 
-/* ── Stripe Card Element styling ─────────────────────────── */
-const CARD_ELEMENT_OPTIONS = {
-  style: {
-    base: {
-      fontSize: '16px',
-      color: '#333',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      '::placeholder': { color: '#aab7c4' },
-    },
-    invalid: { color: '#e74c3c' },
-  },
-}
+const INDUSTRIES = [
+  'automotive',
+  'aerospace',
+  'machinery',
+  'electronics',
+  'energy',
+]
 
 /* ── Inner form (needs Stripe context) ───────────────────── */
 function RegisterForm() {
@@ -37,10 +30,9 @@ function RegisterForm() {
   const [company, setCompany] = useState('')
   const [accountType, setAccountType] = useState('seller')
   const [selectedPlan, setSelectedPlan] = useState('start')
+  const [selectedIndustry, setSelectedIndustry] = useState('automotive')
   const [error, setError] = useState('')
-  const [domainWarning, setDomainWarning] = useState('')
   const [loading, setLoading] = useState(false)
-  const [cardComplete, setCardComplete] = useState(false)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [showAgreementModal, setShowAgreementModal] = useState(false)
 
@@ -51,10 +43,9 @@ function RegisterForm() {
   const setStoreAccountType = useSubscriptionStore((s) => s.setAccountType)
   const theme = useSettingsStore((s) => s.theme)
   const { t } = useTranslation()
-  const stripe = useStripe()
-  const elements = useElements()
 
   const availablePlans = getPlansForAccountType(accountType)
+  const selectedTier = selectedPlan === 'start' ? 'free' : selectedPlan
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -69,39 +60,9 @@ function RegisterForm() {
   const isBuyerBasicTrial = accountType === 'buyer' && selectedPlan === 'basic'
   const isPaidPlan = displayPrice > 0 && !isBuyerBasicTrial
 
-  const getDomain = (e) => {
-    if (!e || !e.includes('@')) return null
-    const domain = e.split('@')[1]?.toLowerCase()
-    const freeProviders = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'icloud.com', 'mail.com', 'protonmail.com']
-    if (freeProviders.includes(domain)) return null
-    return domain
-  }
-
-  useEffect(() => {
-    setDomainWarning('')
-    const domain = getDomain(email)
-    if (!domain || !accountType) return
-    const registry = useAccountRegistry.getState().accounts
-    const existing = registry.find((a) =>
-      a.accountType === accountType &&
-      a.email?.includes('@' + domain) &&
-      a.status !== 'canceled'
-    )
-    if (existing) {
-      setDomainWarning(
-        `A ${accountType === 'service_provider' ? 'Service Provider' : accountType.charAt(0).toUpperCase() + accountType.slice(1)} account for @${domain} already exists (${existing.company}). ` +
-        'Each business domain can have only one account per direction. Ask your admin to invite you as a team member instead.'
-      )
-    }
-  }, [email, accountType])
-
   const handleAccountTypeChange = (type) => {
     setAccountType(type)
-    if (type === 'buyer') {
-      setSelectedPlan('basic')
-    } else {
-      setSelectedPlan('start')
-    }
+    setSelectedPlan('start')
   }
 
   const accountTypeLabel = ACCOUNT_TYPES.find((t) => t.id === accountType)?.label || accountType
@@ -117,18 +78,6 @@ function RegisterForm() {
     if (!/[0-9]/.test(password)) return 'Password must contain at least one number'
     if (password !== confirmPassword) return 'Passwords do not match'
     if (!agreedToTerms) return 'You must accept the Platform Agreement & NDA to continue'
-    const domain = getDomain(email)
-    if (domain) {
-      const registry = useAccountRegistry.getState().accounts
-      const existing = registry.find((a) =>
-        a.accountType === accountType &&
-        a.email?.includes('@' + domain) &&
-        a.status !== 'canceled'
-      )
-      if (existing) {
-        return `A ${accountTypeLabel} account for @${domain} already exists. Ask your admin to invite you as a team member.`
-      }
-    }
     return null
   }
 
@@ -141,46 +90,44 @@ function RegisterForm() {
     setStep(2)
   }
 
-  /* ── Step 2 submit — direct Supabase signup ─────────────── */
+  /* ── Step 2 submit — signup + tier subscription flow ─────── */
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
 
-    if (isPaidPlan && stripe && !cardComplete) {
-      setError('Please enter your payment card details')
-      return
-    }
-
     setLoading(true)
     try {
-      if (!supabase) {
-        alert('Supabase is not configured')
-        return
-      }
-
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
+      const result = await authService.register({
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
         password,
-        options: {
-          data: {
-            full_name: fullName.trim(),
-          },
-          emailRedirectTo: window.location.origin + '/welcome',
-        },
+        phone: phone.trim(),
+        company: company.trim() || undefined,
+        selectedPlan,
+        accountType,
+        selectedIndustry,
+        selectedTier,
       })
 
-      if (error) {
-        console.log('Error from Supabase:', error.message)
-        alert('Something went wrong: ' + error.message)
+      if (result?.emailConfirmationPending) {
+        setStep(3)
         return
       }
 
-      console.log('Account created! User ID:', data.user?.id)
-      alert('Check your email to confirm! (Name should now save)')
-      setStep(3)
+      // FREE tier activates immediately; paid tiers require Stripe confirmation.
+      if (selectedTier !== 'free') {
+        const checkout = await stripeService.checkout(selectedTier)
+        if (checkout?.error) {
+          setError(checkout.error)
+          return
+        }
+        return
+      }
+
+      navigate('/main-menu')
     } catch (err) {
-      console.log('Big error:', err)
-      alert('Very unexpected error – look in console')
+      const msg = err?.message || err?.detail || 'Registration failed. Please try again.'
+      setError(msg)
     } finally {
       setLoading(false)
     }
@@ -201,23 +148,6 @@ function RegisterForm() {
       await authService.loginWithGoogle()
       setStoreAccountType(accountType)
       setPlan(accountType === 'buyer' ? 'basic' : 'start')
-      try {
-        useAccountRegistry.getState().registerAccount({
-          id: `reg-${Date.now()}`,
-          company: company.trim() || fullName.trim() || 'Google User',
-          email: email.trim().toLowerCase() || '',
-          phone: phone.trim() || '',
-          contactName: fullName.trim() || '',
-          accountType,
-          plan: accountType === 'buyer' ? 'basic' : 'start',
-          status: 'active',
-          industries: [],
-          categories: {},
-          registeredAt: new Date().toISOString(),
-          validUntil: null,
-          agreementAcceptedAt: new Date().toISOString(),
-        })
-      } catch { /* silent */ }
       navigate('/main-menu')
     } catch (err) {
       setError(err.message || 'Google sign-up failed')
@@ -349,12 +279,6 @@ function RegisterForm() {
                     </div>
                   </button>
                 </div>
-                {domainWarning && (
-                  <div className="reg-domain-warning">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" strokeWidth="2"/><line x1="12" y1="9" x2="12" y2="13" stroke="currentColor" strokeWidth="2"/><line x1="12" y1="17" x2="12.01" y2="17" stroke="currentColor" strokeWidth="2"/></svg>
-                    {domainWarning}
-                  </div>
-                )}
                 <div className="reg-domain-hint">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                   One business domain can register as Seller <strong>and</strong> Buyer <strong>and</strong> Service Provider separately. Invite team members from within the platform.
@@ -433,6 +357,22 @@ function RegisterForm() {
                 </button>
               </div>
 
+              <div className="form-group">
+                <label htmlFor="reg-industry">Industry</label>
+                <select
+                  id="reg-industry"
+                  value={selectedIndustry}
+                  onChange={(e) => setSelectedIndustry(e.target.value)}
+                  disabled={loading}
+                >
+                  {INDUSTRIES.map((industry) => (
+                    <option key={industry} value={industry}>
+                      {industry.charAt(0).toUpperCase() + industry.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="reg-plans" style={{ gridTemplateColumns: `repeat(${availablePlans.length}, 1fr)` }}>
                 {availablePlans.map((plan) => {
                   const price = getPlanPrice(plan, accountType)
@@ -469,32 +409,10 @@ function RegisterForm() {
                 })}
               </div>
 
-              {isPaidPlan && stripe && (
-                <div className="reg-payment-section">
-                  <div className="reg-payment-header">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <rect x="2" y="5" width="20" height="14" rx="2" stroke="#000888" strokeWidth="2"/>
-                      <path d="M2 10h20" stroke="#000888" strokeWidth="2"/>
-                    </svg>
-                    <span>Payment Details</span>
-                    <span className="reg-payment-amount">${displayPrice}/month</span>
-                  </div>
-                  <div className="reg-card-element">
-                    <CardElement
-                      options={CARD_ELEMENT_OPTIONS}
-                      onChange={(e) => setCardComplete(e.complete)}
-                    />
-                  </div>
-                  <div className="reg-payment-note">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="#2e7d32" strokeWidth="2"/></svg>
-                    Secured by Stripe. You can cancel or change plans anytime.
-                  </div>
-                </div>
-              )}
-
-              {isPaidPlan && !stripe && (
+              {isPaidPlan && (
                 <div className="reg-free-note" style={{ borderColor: '#f0c040', background: '#fffbeb' }}>
-                  Payment processing is not available yet. Your account will be created on the free plan — you can upgrade anytime from the Plans page.
+                  Paid tier selected. After account creation you will be redirected to Stripe Checkout.
+                  Access activates only after webhook confirmation.
                 </div>
               )}
 
@@ -516,7 +434,7 @@ function RegisterForm() {
                 >
                   Back
                 </button>
-                <button type="submit" className="login-button" disabled={loading || (isPaidPlan && stripe && !cardComplete)} style={{ flex: 1 }}>
+                <button type="submit" className="login-button" disabled={loading} style={{ flex: 1 }}>
                   {loading ? 'Creating account...' : 'Create Account'}
                 </button>
               </div>

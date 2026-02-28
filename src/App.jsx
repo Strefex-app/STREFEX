@@ -10,6 +10,7 @@ import PWAUpdateBanner from './components/PWAUpdateBanner'
 import AppLayout from './components/AppLayout'
 import authService from './services/authService'
 import { supabase } from './config/supabase'
+import IndustryGuard from './components/IndustryGuard'
 
 /* ── Page imports ────────────────────────────────────────── */
 import Login from './pages/Login'
@@ -112,6 +113,11 @@ import AuditLogs from './pages/AuditLogs'
 const P = ({ children }) => <ProtectedRoute>{children}</ProtectedRoute>
 const Admin = ({ children }) => <ProtectedRoute requiredRole="admin">{children}</ProtectedRoute>
 const SuperAdmin = ({ children }) => <ProtectedRoute requiredRole="superadmin">{children}</ProtectedRoute>
+const Industry = ({ children, requiredTier = 'free' }) => (
+  <P>
+    <IndustryGuard requiredTier={requiredTier}>{children}</IndustryGuard>
+  </P>
+)
 
 function PlanGate({ feature, planName, children, requiredRole }) {
   const hasFeature = useSubscriptionStore((s) => s.hasFeature)
@@ -208,11 +214,11 @@ function App() {
 
           {/* ── Industry routes ───────────────────────────── */}
           <Route path="/machinery-industry" element={<P><MachineryIndustry /></P>} />
-          <Route path="/industry/:industryId" element={<P><IndustryHub /></P>} />
-          <Route path="/industry/:industryId/overview" element={<P><IndustryOverview /></P>} />
-          <Route path="/industry/:industryId/dashboard" element={<P><Dashboard /></P>} />
-          <Route path="/industry/:industryId/equipment" element={<P><IndustryEquipmentLanding /></P>} />
-          <Route path="/industry/:industryId/equipment/:categoryId/executive-summary" element={<P><ExecutiveSummary /></P>} />
+          <Route path="/industry/:industryId" element={<Industry requiredTier="free"><IndustryHub /></Industry>} />
+          <Route path="/industry/:industryId/overview" element={<Industry requiredTier="free"><IndustryOverview /></Industry>} />
+          <Route path="/industry/:industryId/dashboard" element={<Industry requiredTier="basic"><Dashboard /></Industry>} />
+          <Route path="/industry/:industryId/equipment" element={<Industry requiredTier="basic"><IndustryEquipmentLanding /></Industry>} />
+          <Route path="/industry/:industryId/equipment/:categoryId/executive-summary" element={<Industry requiredTier="standard"><ExecutiveSummary /></Industry>} />
 
           {/* ── Management Hub ────────────────────────────── */}
           <Route path="/management" element={<P><ManagementHub /></P>} />

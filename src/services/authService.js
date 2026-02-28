@@ -26,6 +26,11 @@ import { authApi } from './api'
 import { useAuthStore } from '../store/authStore'
 import { analytics } from './analytics'
 import { isSuperadminEmail } from './superadminAuth'
+import {
+  useIndustrySubscriptionStore,
+  createFreeSubscription,
+  createPendingSubscription,
+} from './subscriptionService'
 
 const googleProvider = isFirebaseConfigured ? new GoogleAuthProvider() : null
 
@@ -68,6 +73,11 @@ async function storeSupabaseSession(session, profile) {
     role,
     tenant: profile?.companies?.slug,
   })
+
+  // Load active subscriptions for industry+tier access guards.
+  if (user?.id) {
+    await useIndustrySubscriptionStore.getState().loadActiveSubscriptions(user.id)
+  }
 }
 
 /**
@@ -121,6 +131,14 @@ const authService = {
         const err = new Error('Please verify your email before logging in.')
         err.code = 'email_not_confirmed'
         throw err
+      }
+
+      // If registration happened before email confirmation, ensure free tier
+      // is materialized after first successful login.
+      const metaTier = (user?.user_metadata?.tier || '').toLowerCase()
+      const metaIndustry = user?.user_metadata?.industry || 'automotive'
+      if (user?.id && metaTier === 'free') {
+        await createFreeSubscription({ userId: user.id, industry: metaIndustry }).catch(() => {})
       }
 
       const profile = await profilesService.getMyProfile()
@@ -193,10 +211,32 @@ const authService = {
    * Supabase: creates auth user + company, then logs in.
    * Firebase: creates Firebase account, then calls backend register.
    */
-  async register({ fullName, email, password, phone, company, selectedPlan = 'start', accountType = 'seller' }) {
+  async register({
+    fullName,
+    email,
+    password,
+    phone,
+    company,
+    selectedPlan = 'start',
+    accountType = 'seller',
+    selectedIndustry = 'general',
+    selectedTier = 'free',
+  }) {
     // ── Supabase path ──
     if (isSupabaseConfigured) {
-      const signUpData = await supabaseAuth.signUp({ email, password, fullName, phone })
+      const normalizedTier = (selectedTier || selectedPlan || 'free').toLowerCase()
+      const signUpData = await supabaseAuth.signUp({
+        email,
+        password,
+        fullName,
+        phone,
+        metadata: {
+          company_name: company || '',
+          account_type: accountType,
+          industry: selectedIndustry,
+          tier: normalizedTier,
+        },
+      })
       const user = signUpData?.user
       const session = signUpData?.session
 
@@ -236,16 +276,41 @@ const authService = {
 
         // No session means email confirmation is pending
         if (!session) {
-          analytics.track('user_register', { method: 'supabase', plan: selectedPlan, accountType, awaitingConfirmation: true })
-          return { user, emailConfirmationPending: true }
+          analytics.track('user_register', {
+            method: 'supabase',
+            tier: normalizedTier,
+            accountType,
+            industry: selectedIndustry,
+            awaitingConfirmation: true,
+          })
+          return {
+            user,
+            emailConfirmationPending: true,
+            selectedIndustry,
+            selectedTier: normalizedTier,
+          }
         }
 
         // Session exists — email confirmation is disabled or auto-confirmed
         const profile = await profilesService.getMyProfile()
         await storeSupabaseSession(session, profile)
 
-        analytics.track('user_register', { method: 'supabase', plan: selectedPlan, accountType })
-        return { session, user, profile }
+        // Free tier grants access immediately.
+        if (normalizedTier === 'free') {
+          await createFreeSubscription({ userId: user.id, industry: selectedIndustry })
+        } else {
+          // Paid tiers are pending until Stripe webhook confirms payment.
+          await createPendingSubscription({ userId: user.id, industry: selectedIndustry, tier: normalizedTier })
+        }
+
+        await useIndustrySubscriptionStore.getState().loadActiveSubscriptions(user.id)
+        analytics.track('user_register', {
+          method: 'supabase',
+          tier: normalizedTier,
+          accountType,
+          industry: selectedIndustry,
+        })
+        return { session, user, profile, requiresPayment: normalizedTier !== 'free', tier: normalizedTier, industry: selectedIndustry }
       }
       return signUpData
     }
@@ -371,6 +436,7 @@ const authService = {
       if (session?.user) {
         const profile = await profilesService.getMyProfile()
         await storeSupabaseSession(session, profile)
+        await useIndustrySubscriptionStore.getState().loadActiveSubscriptions(session.user.id)
         return { session, profile }
       }
     } catch {

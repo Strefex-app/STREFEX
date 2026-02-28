@@ -2,19 +2,9 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore } from '../store/settingsStore'
-import { useSubscriptionStore } from '../services/featureFlags'
 import { useTranslation } from '../i18n/useTranslation'
 import authService from '../services/authService'
-import {
-  isSuperadminEmail,
-  validateSuperadminCredentials,
-} from '../services/superadminAuth'
-import { analytics } from '../services/analytics'
 import './Login.css'
-
-const PREVIEW_ENABLED = import.meta.env.VITE_PREVIEW_LOGIN_ENABLED === 'true'
-const PREVIEW_EMAIL = 'preview@strefex.com'
-const PREVIEW_SESSION_MINUTES = 10
 
 function getReadableErrorMessage(err, fallback) {
   if (!err) return fallback
@@ -41,10 +31,7 @@ const Login = () => {
 
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const login = useAuthStore((state) => state.login)
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
-  const setPlan = useSubscriptionStore((s) => s.setPlan)
-  const setAccountType = useSubscriptionStore((s) => s.setAccountType)
   const theme = useSettingsStore((s) => s.theme)
   const { t } = useTranslation()
 
@@ -77,34 +64,6 @@ const Login = () => {
       return
     }
 
-    const trimmedEmail = email.trim().toLowerCase()
-
-    // ── Superadmin login — client-side credential check, no 2FA ──
-    if (isSuperadminEmail(trimmedEmail)) {
-      if (!validateSuperadminCredentials(trimmedEmail, password)) {
-        setError('Invalid credentials')
-        return
-      }
-      login({
-        role: 'superadmin',
-        user: {
-          email: trimmedEmail,
-          fullName: 'STREFEX Admin',
-          companyName: 'STREFEX',
-        },
-        tenant: {
-          id: 'strefex-platform',
-          name: 'STREFEX',
-          slug: 'strefex',
-        },
-      })
-      setPlan('enterprise', 'active')
-      setAccountType('buyer')
-      analytics.track('user_login', { method: 'superadmin', role: 'superadmin' })
-      navigate('/main-menu')
-      return
-    }
-
     // ── Regular login via Supabase / backend ──
     setLoading(true)
     try {
@@ -121,40 +80,6 @@ const Login = () => {
         setError('Unable to reach the server. Please check your internet connection and try again.')
       } else {
         setError(getReadableErrorMessage(err, 'Login failed. Please try again.'))
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  /* ── Preview login — limited session, read-only ──────────── */
-  const handlePreviewLogin = async () => {
-    setError('')
-    setInfo('')
-    setLoading(true)
-    try {
-      await authService.loginWithEmail(PREVIEW_EMAIL, 'preview123')
-      localStorage.setItem('strefex-preview-expires', String(Date.now() + PREVIEW_SESSION_MINUTES * 60 * 1000))
-      navigate('/main-menu')
-    } catch (err) {
-      if (err.status === 0 || err.message?.includes('Network error')) {
-        const expiresAt = Date.now() + PREVIEW_SESSION_MINUTES * 60 * 1000
-        localStorage.setItem('strefex-preview-expires', String(expiresAt))
-
-        login({
-          role: 'admin',
-          user: {
-            email: PREVIEW_EMAIL,
-            fullName: 'Preview User',
-            companyName: 'STREFEX Demo',
-          },
-        })
-        setPlan('enterprise', 'active')
-        setAccountType('buyer')
-        analytics.track('user_login', { method: 'preview', role: 'admin' })
-        navigate('/main-menu')
-      } else {
-        setError(err.detail || err.message || 'Login failed.')
       }
     } finally {
       setLoading(false)
@@ -282,23 +207,6 @@ const Login = () => {
             </Link>
           </div>
 
-          {PREVIEW_ENABLED && (
-          <div className="login-superadmin-access">
-            <button
-              type="button"
-              className="login-superadmin-btn"
-              onClick={handlePreviewLogin}
-              disabled={loading}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
-              </svg>
-              Preview Platform
-            </button>
-            <span className="login-superadmin-hint">{PREVIEW_SESSION_MINUTES}-min session — all features visible, supplier names hidden</span>
-          </div>
-          )}
         </div>
       </div>
     </div>
