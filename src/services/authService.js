@@ -24,6 +24,7 @@ import { isSupabaseConfigured } from '../config/supabase'
 import { supabaseAuth, profilesService, companiesService } from './supabaseService'
 import { authApi } from './api'
 import { useAuthStore } from '../store/authStore'
+import { useSubscriptionStore } from './featureFlags'
 import { analytics } from './analytics'
 import { isSuperadminEmail } from './superadminAuth'
 import {
@@ -47,6 +48,15 @@ function capRole(role, email) {
 async function storeSupabaseSession(session, profile) {
   const user = session?.user
   const role = capRole(profile?.role || 'user', user?.email)
+  const metadata = profile?.metadata || {}
+  const metadataAccountTypes = Array.isArray(metadata.account_types)
+    ? metadata.account_types
+    : []
+  const fallbackAccountType = metadata.account_type || user?.user_metadata?.account_type || 'seller'
+  const accountTypes = metadataAccountTypes.length > 0
+    ? metadataAccountTypes
+    : [fallbackAccountType]
+  const primaryAccountType = accountTypes[0] || fallbackAccountType
 
   useAuthStore.getState().login({
     role,
@@ -58,6 +68,8 @@ async function storeSupabaseSession(session, profile) {
       fullName: profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0],
       role,
       phone: profile?.phone,
+      accountTypes,
+      primaryAccountType,
     },
     tenant: profile?.company_id
       ? {
@@ -78,6 +90,9 @@ async function storeSupabaseSession(session, profile) {
   if (user?.id) {
     await useIndustrySubscriptionStore.getState().loadActiveSubscriptions(user.id)
   }
+
+  // Keep UI account-type context aligned with profile metadata.
+  useSubscriptionStore.getState().setAccountType(primaryAccountType)
 }
 
 async function syncProfileFromRegistrationMetadata(user, profile) {
@@ -116,6 +131,9 @@ async function syncProfileFromRegistrationMetadata(user, profile) {
   const metadata = {
     ...(profile?.metadata || {}),
     account_type: md.account_type || profile?.metadata?.account_type || null,
+    account_types: Array.isArray(md.account_types)
+      ? md.account_types
+      : (profile?.metadata?.account_types || (md.account_type ? [md.account_type] : [])),
     industry: md.industry || profile?.metadata?.industry || null,
     tier: md.tier || profile?.metadata?.tier || 'free',
   }
@@ -161,6 +179,10 @@ function storeSession(backendResponse) {
           email: user.email,
           fullName: user.full_name ?? user.fullName,
           role,
+          accountTypes: Array.isArray(user.account_types)
+            ? user.account_types
+            : [user.account_type || 'seller'],
+          primaryAccountType: user.account_type || 'seller',
         }
       : null,
     tenant: tenant
@@ -282,12 +304,17 @@ const authService = {
     company,
     selectedPlan = 'start',
     accountType = 'seller',
+    accountTypes = null,
     selectedIndustry = 'general',
     selectedTier = 'free',
   }) {
     // ── Supabase path ──
     if (isSupabaseConfigured) {
       const normalizedTier = (selectedTier || selectedPlan || 'free').toLowerCase()
+      const normalizedAccountTypes = Array.isArray(accountTypes) && accountTypes.length > 0
+        ? accountTypes
+        : [accountType]
+      const primaryAccountType = normalizedAccountTypes[0] || accountType
       const signUpData = await supabaseAuth.signUp({
         email,
         password,
@@ -295,7 +322,8 @@ const authService = {
         phone,
         metadata: {
           company_name: company || '',
-          account_type: accountType,
+          account_type: primaryAccountType,
+          account_types: normalizedAccountTypes,
           industry: selectedIndustry,
           tier: normalizedTier,
         },
@@ -318,7 +346,7 @@ const authService = {
             slug: `${companySlug}-${Date.now().toString(36)}`,
             email: email,
             phone: phone || null,
-            account_type: accountType,
+            account_type: primaryAccountType,
             plan: selectedPlan,
             status: 'active',
           })
@@ -329,6 +357,12 @@ const authService = {
               full_name: fullName,
               phone: phone || null,
               role: 'admin',
+              metadata: {
+                account_type: primaryAccountType,
+                account_types: normalizedAccountTypes,
+                industry: selectedIndustry,
+                tier: normalizedTier,
+              },
               email_verified: false,
               phone_verified: false,
             })
@@ -342,7 +376,7 @@ const authService = {
           analytics.track('user_register', {
             method: 'supabase',
             tier: normalizedTier,
-            accountType,
+            accountType: primaryAccountType,
             industry: selectedIndustry,
             awaitingConfirmation: true,
           })
@@ -370,7 +404,7 @@ const authService = {
         analytics.track('user_register', {
           method: 'supabase',
           tier: normalizedTier,
-          accountType,
+          accountType: primaryAccountType,
           industry: selectedIndustry,
         })
         return { session, user, profile, requiresPayment: normalizedTier !== 'free', tier: normalizedTier, industry: selectedIndustry }
@@ -445,6 +479,10 @@ const authService = {
             fullName: profile.full_name,
             role: profile.role,
             phone: profile.phone,
+            accountTypes: Array.isArray(profile?.metadata?.account_types)
+              ? profile.metadata.account_types
+              : [profile?.metadata?.account_type || 'seller'],
+            primaryAccountType: profile?.metadata?.account_type || 'seller',
           })
           return profile
         }

@@ -54,10 +54,14 @@ export default function Home() {
   const { t } = useTranslation()
 
   const role = useAuthStore((s) => s.role)
+  const user = useAuthStore((s) => s.user)
   const isSuperAdmin = role === 'superadmin'
-  const isSeller = accountType === 'seller'
-  const isBuyer = accountType === 'buyer'
-  const isServiceProvider = accountType === 'service_provider'
+  const accountTypes = Array.isArray(user?.accountTypes) && user.accountTypes.length > 0
+    ? user.accountTypes
+    : [accountType || 'seller']
+  const hasAccountType = (type) => accountTypes.includes(type)
+  const isSeller = hasAccountType('seller')
+  const isServiceProvider = hasAccountType('service_provider')
 
   const projectsTotal = projects?.length ?? 0
   const projectsInProgress = projects?.reduce((acc, p) => {
@@ -169,7 +173,7 @@ export default function Home() {
             ))}
           </div>
         ) : (
-          /* Regular users see only THEIR dashboard */
+          /* Regular users see dashboards for selected account types */
           <div style={{ marginBottom: 20 }}>
             {(() => {
               const dashMap = {
@@ -177,35 +181,71 @@ export default function Home() {
                 buyer: { label: 'Buyer Dashboard', path: '/buyer-dashboard', color: '#2e7d32', bg: 'rgba(46,125,50,.06)', border: 'rgba(46,125,50,.2)', desc: `${rfqStats.sent} RFQs sent · ${rfqStats.responses} responses · ${projectsTotal} projects` },
                 service_provider: { label: 'Service Provider Dashboard', path: '/service-provider-dashboard', color: '#e65100', bg: 'rgba(230,81,0,.06)', border: 'rgba(230,81,0,.2)', desc: `${projectsTotal} projects · Manage service requests` },
               }
-              const d = dashMap[accountType]
-              if (!d) return null
+              const dashboards = accountTypes
+                .map((type) => dashMap[type])
+                .filter(Boolean)
+              if (dashboards.length === 0) return null
+              if (dashboards.length === 1) {
+                const d = dashboards[0]
+                return (
+                  <button
+                    type="button"
+                    className="stx-click-feedback"
+                    onClick={() => navigate(d.path)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12, width: '100%',
+                      padding: '16px 22px', borderRadius: 14,
+                      background: d.bg, border: `1.5px solid ${d.border}`,
+                      cursor: 'pointer', textAlign: 'left',
+                    }}
+                  >
+                    <span style={{
+                      width: 44, height: 44, borderRadius: 12,
+                      background: d.border, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: d.color, flexShrink: 0,
+                    }}>
+                      <Icon name="management" size={22} />
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>{d.label}</div>
+                      <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>{d.desc}</div>
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: d.color, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Open Dashboard <Icon name="chevron-right" size={14} />
+                    </span>
+                  </button>
+                )
+              }
               return (
-                <button
-                  type="button"
-                  className="stx-click-feedback"
-                  onClick={() => navigate(d.path)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 12, width: '100%',
-                    padding: '16px 22px', borderRadius: 14,
-                    background: d.bg, border: `1.5px solid ${d.border}`,
-                    cursor: 'pointer', textAlign: 'left',
-                  }}
-                >
-                  <span style={{
-                    width: 44, height: 44, borderRadius: 12,
-                    background: d.border, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: d.color, flexShrink: 0,
-                  }}>
-                    <Icon name="management" size={22} />
-                  </span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>{d.label}</div>
-                    <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>{d.desc}</div>
-                  </div>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: d.color, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    Open Dashboard <Icon name="chevron-right" size={14} />
-                  </span>
-                </button>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+                  {dashboards.map((d) => (
+                    <button
+                      key={d.path}
+                      type="button"
+                      className="stx-click-feedback"
+                      onClick={() => navigate(d.path)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '14px 18px', borderRadius: 14,
+                        background: d.bg, border: `1.5px solid ${d.border}`,
+                        cursor: 'pointer', textAlign: 'left', width: '100%',
+                      }}
+                    >
+                      <span style={{
+                        width: 38, height: 38, borderRadius: 10,
+                        background: d.border, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: d.color, flexShrink: 0,
+                      }}>
+                        <Icon name="management" size={18} />
+                      </span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>{d.label}</div>
+                        <div style={{ fontSize: 12, color: '#666', marginTop: 1 }}>{d.desc}</div>
+                      </div>
+                      <Icon name="chevron-right" size={14} color={d.color} />
+                    </button>
+                  ))}
+                </div>
               )
             })()}
           </div>

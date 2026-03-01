@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useSubscriptionStore, useTier, TIERS } from '../services/featureFlags'
 import { getPlanById, getEffectiveLimits } from '../services/stripeService'
+import { profilesService, companiesService } from '../services/supabaseService'
 import { useTranslation } from '../i18n/useTranslation'
 import { tenantKey } from '../utils/tenantStorage'
 import AppLayout from '../components/AppLayout'
@@ -266,6 +267,8 @@ const Profile = () => {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const tenant = useAuthStore((s) => s.tenant)
+  const setUser = useAuthStore((s) => s.setUser)
+  const setTenant = useAuthStore((s) => s.setTenant)
   const { t: tr } = useTranslation()
 
   /* ── Auth & subscription info ─────────────────────────────── */
@@ -321,6 +324,15 @@ const Profile = () => {
   }, [contacts])
 
   const [showAddContact, setShowAddContact] = useState(false)
+  const [showEditCompany, setShowEditCompany] = useState(false)
+  const [savingCompany, setSavingCompany] = useState(false)
+  const [companyError, setCompanyError] = useState('')
+  const [companyForm, setCompanyForm] = useState({
+    fullName: '',
+    phone: '',
+    companyName: '',
+    companyAddress: '',
+  })
   const [showScanModal, setShowScanModal] = useState(false)
   const [scanProgress, setScanProgress] = useState(0)
   const [scanStatus, setScanStatus] = useState('') // '', 'loading', 'recognizing', 'parsing', 'done', 'error'
@@ -333,6 +345,15 @@ const Profile = () => {
     address: '', website: '', industry: '', type: 'Supplier', notes: '',
   })
   const scanFileRef = useRef(null)
+
+  useEffect(() => {
+    setCompanyForm({
+      fullName: user?.fullName || '',
+      phone: user?.phone || '',
+      companyName: tenant?.name || '',
+      companyAddress: tenant?.metadata?.address || '',
+    })
+  }, [tenant, user])
 
   /* ── Document handlers ───────────────────────────────────── */
   const handleUploadFile = (templateId) => {
@@ -539,6 +560,58 @@ const Profile = () => {
     ? `Trial (ends ${trialEndsAt ? new Date(trialEndsAt).toLocaleDateString() : '—'})`
     : status === 'canceled' ? 'Canceled' : 'Active'
 
+  const handleSaveCompanyInfo = async () => {
+    setCompanyError('')
+    if (!companyForm.fullName.trim()) {
+      setCompanyError('Full name is required')
+      return
+    }
+    if (!companyForm.companyName.trim()) {
+      setCompanyError('Company name is required')
+      return
+    }
+    if (!tenant?.id) {
+      setCompanyError('Company profile is not linked to your account yet')
+      return
+    }
+
+    try {
+      setSavingCompany(true)
+      const nextAddress = companyForm.companyAddress.trim()
+      const updatedCompany = await companiesService.update(tenant.id, {
+        name: companyForm.companyName.trim(),
+        address: nextAddress || null,
+        metadata: {
+          ...(tenant.metadata || {}),
+          address: nextAddress || null,
+        },
+      })
+      await profilesService.updateProfile({
+        full_name: companyForm.fullName.trim(),
+        phone: companyForm.phone.trim() || null,
+      })
+      setUser({
+        ...(user || {}),
+        fullName: companyForm.fullName.trim(),
+        phone: companyForm.phone.trim() || null,
+      })
+      setTenant({
+        ...(tenant || {}),
+        name: updatedCompany?.name || companyForm.companyName.trim(),
+        metadata: {
+          ...(tenant?.metadata || {}),
+          ...(updatedCompany?.metadata || {}),
+          address: nextAddress || null,
+        },
+      })
+      setShowEditCompany(false)
+    } catch (err) {
+      setCompanyError(err?.message || 'Failed to update company information')
+    } finally {
+      setSavingCompany(false)
+    }
+  }
+
   return (
     <AppLayout>
       <div className="profile-page">
@@ -612,6 +685,11 @@ const Profile = () => {
               <p className="prof-card-subtitle">Your organization details and subscription plan.</p>
             </div>
             <div className="prof-company-actions">
+              {isAdmin && (
+                <button className="prof-btn-outline" onClick={() => setShowEditCompany(true)}>
+                  Edit Company Info
+                </button>
+              )}
               {isAdmin && (
                 <button className="prof-btn-outline" onClick={() => navigate('/team')}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -776,6 +854,61 @@ const Profile = () => {
             <button className="prof-btn-primary" onClick={() => navigate('/plans')}>Upgrade Plan</button>
           </div>
         </div>
+        )}
+
+        {showEditCompany && (
+          <div className="prof-modal-overlay" onClick={() => !savingCompany && setShowEditCompany(false)}>
+            <div className="prof-modal" onClick={(e) => e.stopPropagation()}>
+              <h3 className="prof-modal-title">Edit Company Information</h3>
+              <div className="prof-modal-body">
+                {companyError && <div className="login-error" role="alert">{companyError}</div>}
+                <div className="prof-form-grid">
+                  <div className="prof-form-group">
+                    <label className="prof-form-label">Full Name</label>
+                    <input
+                      className="prof-form-input"
+                      value={companyForm.fullName}
+                      onChange={(e) => setCompanyForm((p) => ({ ...p, fullName: e.target.value }))}
+                      disabled={savingCompany}
+                    />
+                  </div>
+                  <div className="prof-form-group">
+                    <label className="prof-form-label">Phone</label>
+                    <input
+                      className="prof-form-input"
+                      value={companyForm.phone}
+                      onChange={(e) => setCompanyForm((p) => ({ ...p, phone: e.target.value }))}
+                      disabled={savingCompany}
+                    />
+                  </div>
+                  <div className="prof-form-group full">
+                    <label className="prof-form-label">Company Name</label>
+                    <input
+                      className="prof-form-input"
+                      value={companyForm.companyName}
+                      onChange={(e) => setCompanyForm((p) => ({ ...p, companyName: e.target.value }))}
+                      disabled={savingCompany}
+                    />
+                  </div>
+                  <div className="prof-form-group full">
+                    <label className="prof-form-label">Company Address</label>
+                    <input
+                      className="prof-form-input"
+                      value={companyForm.companyAddress}
+                      onChange={(e) => setCompanyForm((p) => ({ ...p, companyAddress: e.target.value }))}
+                      disabled={savingCompany}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="prof-modal-footer">
+                <button className="prof-btn-secondary" onClick={() => setShowEditCompany(false)} disabled={savingCompany}>Cancel</button>
+                <button className="prof-btn-primary" onClick={handleSaveCompanyInfo} disabled={savingCompany}>
+                  {savingCompany ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ── Contact List Widget (Standard+ only) ─────────────── */}

@@ -28,7 +28,7 @@ function RegisterForm() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [company, setCompany] = useState('')
-  const [accountType, setAccountType] = useState('seller')
+  const [accountTypes, setAccountTypes] = useState(['seller'])
   const [selectedPlan, setSelectedPlan] = useState('start')
   const [selectedIndustry, setSelectedIndustry] = useState('automotive')
   const [error, setError] = useState('')
@@ -44,7 +44,8 @@ function RegisterForm() {
   const theme = useSettingsStore((s) => s.theme)
   const { t } = useTranslation()
 
-  const availablePlans = getPlansForAccountType(accountType)
+  const primaryAccountType = accountTypes[0] || 'seller'
+  const availablePlans = getPlansForAccountType(primaryAccountType)
   const selectedTier = selectedPlan === 'start' ? 'free' : selectedPlan
 
   useEffect(() => {
@@ -56,16 +57,23 @@ function RegisterForm() {
   }, [isAuthenticated, navigate])
 
   const selectedPlanObj = PLANS.find((p) => p.id === selectedPlan) || PLANS[0]
-  const displayPrice = getPlanPrice(selectedPlanObj, accountType)
-  const isBuyerBasicTrial = accountType === 'buyer' && selectedPlan === 'basic'
+  const displayPrice = getPlanPrice(selectedPlanObj, primaryAccountType)
+  const isBuyerBasicTrial = primaryAccountType === 'buyer' && selectedPlan === 'basic'
   const isPaidPlan = displayPrice > 0 && !isBuyerBasicTrial
 
-  const handleAccountTypeChange = (type) => {
-    setAccountType(type)
+  const handleAccountTypeToggle = (type) => {
+    setAccountTypes((prev) => {
+      const next = prev.includes(type)
+        ? prev.filter((v) => v !== type)
+        : [...prev, type]
+      return next.length > 0 ? next : [type]
+    })
     setSelectedPlan('start')
   }
 
-  const accountTypeLabel = ACCOUNT_TYPES.find((t) => t.id === accountType)?.label || accountType
+  const accountTypeLabels = accountTypes
+    .map((type) => ACCOUNT_TYPES.find((t) => t.id === type)?.label || type)
+    .join(', ')
 
   /* ── Step 1 validation ─────────────────────────────────── */
   const validateAccount = () => {
@@ -77,6 +85,7 @@ function RegisterForm() {
     if (!/[A-Z]/.test(password)) return 'Password must contain at least one uppercase letter'
     if (!/[0-9]/.test(password)) return 'Password must contain at least one number'
     if (password !== confirmPassword) return 'Passwords do not match'
+    if (!accountTypes.length) return 'Please select at least one account type'
     if (!agreedToTerms) return 'You must accept the Platform Agreement & NDA to continue'
     return null
   }
@@ -104,7 +113,8 @@ function RegisterForm() {
         phone: phone.trim(),
         company: company.trim() || undefined,
         selectedPlan,
-        accountType,
+        accountType: primaryAccountType,
+        accountTypes,
         selectedIndustry,
         selectedTier,
       })
@@ -146,8 +156,8 @@ function RegisterForm() {
     setLoading(true)
     try {
       await authService.loginWithGoogle()
-      setStoreAccountType(accountType)
-      setPlan(accountType === 'buyer' ? 'basic' : 'start')
+      setStoreAccountType(primaryAccountType)
+      setPlan(primaryAccountType === 'buyer' ? 'basic' : 'start')
       navigate('/main-menu')
     } catch (err) {
       setError(err.message || 'Google sign-up failed')
@@ -171,7 +181,7 @@ function RegisterForm() {
             {step === 1
               ? 'Get started with STREFEX Platform'
               : step === 2
-              ? `Choose your ${accountTypeLabel} plan`
+              ? `Choose your ${accountTypeLabels} plan`
               : 'Almost there!'}
           </p>
 
@@ -235,8 +245,8 @@ function RegisterForm() {
                 <div className="reg-account-type-toggle reg-account-type-3col">
                   <button
                     type="button"
-                    className={`reg-account-type-btn ${accountType === 'seller' ? 'active' : ''}`}
-                    onClick={() => handleAccountTypeChange('seller')}
+                    className={`reg-account-type-btn ${accountTypes.includes('seller') ? 'active' : ''}`}
+                    onClick={() => handleAccountTypeToggle('seller')}
                     disabled={loading}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
@@ -250,8 +260,8 @@ function RegisterForm() {
                   </button>
                   <button
                     type="button"
-                    className={`reg-account-type-btn ${accountType === 'buyer' ? 'active' : ''}`}
-                    onClick={() => handleAccountTypeChange('buyer')}
+                    className={`reg-account-type-btn ${accountTypes.includes('buyer') ? 'active' : ''}`}
+                    onClick={() => handleAccountTypeToggle('buyer')}
                     disabled={loading}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
@@ -266,8 +276,8 @@ function RegisterForm() {
                   </button>
                   <button
                     type="button"
-                    className={`reg-account-type-btn ${accountType === 'service_provider' ? 'active' : ''}`}
-                    onClick={() => handleAccountTypeChange('service_provider')}
+                    className={`reg-account-type-btn ${accountTypes.includes('service_provider') ? 'active' : ''}`}
+                    onClick={() => handleAccountTypeToggle('service_provider')}
                     disabled={loading}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
@@ -347,7 +357,7 @@ function RegisterForm() {
           {step === 2 && (
             <form onSubmit={handleSubmit} className="login-form" noValidate>
               <div className="reg-account-type-indicator">
-                Registering as <strong>{accountTypeLabel}</strong>
+                Registering as <strong>{accountTypeLabels}</strong>
                 <button
                   type="button"
                   className="reg-change-type-link"
@@ -375,9 +385,9 @@ function RegisterForm() {
 
               <div className="reg-plans" style={{ gridTemplateColumns: `repeat(${availablePlans.length}, 1fr)` }}>
                 {availablePlans.map((plan) => {
-                  const price = getPlanPrice(plan, accountType)
-                  const features = getPlanFeatures(plan, accountType)
-                  const isBuyerTrial = accountType === 'buyer' && plan.id === 'basic'
+                  const price = getPlanPrice(plan, primaryAccountType)
+                  const features = getPlanFeatures(plan, primaryAccountType)
+                  const isBuyerTrial = primaryAccountType === 'buyer' && plan.id === 'basic'
                   return (
                     <button
                       key={plan.id}
