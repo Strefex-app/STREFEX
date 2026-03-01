@@ -3,6 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import AppLayout from '../components/AppLayout'
 import { useAuthStore } from '../store/authStore'
 import { useSupplierStore } from '../store/supplierStore'
+import { useAccountRegistry } from '../store/accountRegistry'
+import { useIndustryStore } from '../store/industryStore'
+import { getProductCategoriesForIndustry } from '../data/productCategoriesByIndustry'
+import { getEquipmentCategoriesForIndustry } from '../data/equipmentCategoriesByIndustry'
 import '../styles/app-page.css'
 import './AddSupplier.css'
 
@@ -12,12 +16,25 @@ const INDUSTRY_ID_TO_LABEL = {
   machinery: 'Machinery',
   electronics: 'Electronics',
   medical: 'Medical',
+  'raw-materials': 'Raw Materials',
+  'oil-gas': 'Oil & Gas',
+  'green-energy': 'Green Energy',
+  'household-products': 'Household Products',
 }
+
+const INDUSTRY_LABEL_TO_ID = Object.fromEntries(
+  Object.entries(INDUSTRY_ID_TO_LABEL).map(([id, label]) => [label.toLowerCase(), id])
+)
 
 const AddSupplier = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const addSubmission = useSupplierStore((state) => state.addSubmission)
+  const registerAccount = useAccountRegistry((state) => state.registerAccount)
+  const getAccountByEmail = useAccountRegistry((state) => state.getAccountByEmail)
+  const updateAccount = useAccountRegistry((state) => state.updateAccount)
+  const selectIndustry = useIndustryStore((state) => state.selectIndustry)
+  const selectCategory = useIndustryStore((state) => state.selectCategory)
   const user = useAuthStore((s) => s.user)
   const tenant = useAuthStore((s) => s.tenant)
 
@@ -25,13 +42,16 @@ const AddSupplier = () => {
   const contextType = searchParams.get('context') || ''
   const isProductContext = contextType === 'product'
   const isServiceContext = contextType === 'service'
-  const hasContext = isProductContext || isServiceContext
+  const isEquipmentContext = contextType === 'equipment'
+  const hasContext = isProductContext || isServiceContext || isEquipmentContext
 
   // Product params
   const qIndustry = searchParams.get('industry') || ''
   const qIndustryLabel = searchParams.get('industryLabel') || ''
   const qProductCategory = searchParams.get('productCategory') || ''
   const qProcess = searchParams.get('process') || ''
+  const qCategory = searchParams.get('category') || ''
+  const qCategoryId = searchParams.get('categoryId') || ''
 
   // Service params
   const qServiceCategory = searchParams.get('serviceCategory') || ''
@@ -53,6 +73,10 @@ const AddSupplier = () => {
     if (isServiceContext) {
       return SERVICE_CATEGORY_TO_INDUSTRIES[qServiceCategory] || []
     }
+    if (isEquipmentContext) {
+      const label = INDUSTRY_ID_TO_LABEL[qIndustry]
+      return label ? [label] : []
+    }
     return []
   })()
 
@@ -63,6 +87,9 @@ const AddSupplier = () => {
     }
     if (isServiceContext) {
       return `Service supplier for ${qServiceCategoryLabel || qServiceCategory}`
+    }
+    if (isEquipmentContext) {
+      return `Supplier for ${qCategory || 'equipment'} (${qIndustryLabel || qIndustry} industry)`
     }
     return ''
   })()
@@ -150,14 +177,93 @@ const AddSupplier = () => {
   const handleSubmit = (e) => {
     e.preventDefault()
     setIsSubmitting(true)
-    
-    // Add to store
-    addSubmission(formData)
-    
-    setTimeout(() => {
+
+    try {
+      // 1) Keep admin approval queue behavior
+      addSubmission(formData)
+
+      // 2) Register supplier in the same registry used by executive summary
+      const fromFormIndustryIds = (formData.industries || [])
+        .map((label) => INDUSTRY_LABEL_TO_ID[label.toLowerCase()])
+        .filter(Boolean)
+      const industryIds = [...new Set([
+        ...fromFormIndustryIds,
+        ...(qIndustry ? [qIndustry] : []),
+      ])]
+
+      // Resolve product category ID (if route came from product context)
+      let resolvedCategoryId = null
+      if (isProductContext && qIndustry && qProductCategory) {
+        const productCategories = getProductCategoriesForIndustry(qIndustry)
+        const found = productCategories.find((c) => c.name.toLowerCase() === qProductCategory.toLowerCase())
+        resolvedCategoryId = found?.id || null
+      }
+      if (isEquipmentContext && qIndustry) {
+        if (qCategoryId) {
+          resolvedCategoryId = qCategoryId
+        } else if (qCategory) {
+          const equipmentCategories = getEquipmentCategoriesForIndustry(qIndustry)
+          const found = equipmentCategories.find((c) => c.name.toLowerCase() === qCategory.toLowerCase())
+          resolvedCategoryId = found?.id || null
+        }
+      }
+
+      const categories = {}
+      industryIds.forEach((industryId) => {
+        categories[industryId] = resolvedCategoryId ? [resolvedCategoryId] : []
+      })
+
+      const emailKey = (formData.email || '').trim().toLowerCase()
+      const nowIso = new Date().toISOString()
+      const existing = getAccountByEmail(emailKey)
+      const accountPayload = {
+        company: formData.companyName?.trim() || tenant?.name || 'Supplier',
+        email: emailKey,
+        contactName: formData.contactPerson?.trim() || '',
+        accountType: 'seller',
+        status: 'active',
+        plan: 'start',
+        industries: industryIds,
+        categories,
+        country: formData.country?.trim() || '',
+        city: formData.city?.trim() || '',
+        rating: 0,
+        riskLevel: 50,
+        fitLevel: 50,
+        capacityLevel: 50,
+        certifications: formData.certifications || [],
+        leadTimeDays: 0,
+        deliveryTimeDays: 0,
+        priceIndex: 100,
+        registeredAt: existing?.registeredAt || nowIso,
+      }
+
+      if (existing) {
+        updateAccount(emailKey, accountPayload)
+      } else {
+        registerAccount({
+          id: `supp-${Date.now()}`,
+          ...accountPayload,
+        })
+      }
+
+      // 3) Mirror to current logged-in supplier profile flow (industry/category selection)
+      // if this submission is for the signed-in account and route context includes industry/category.
+      if (user?.email && user.email.toLowerCase() === emailKey) {
+        industryIds.forEach((industryId) => selectIndustry(industryId, Infinity))
+        if (qIndustry && resolvedCategoryId) {
+          selectCategory(qIndustry, resolvedCategoryId, Infinity)
+        }
+      }
+
+      setTimeout(() => {
+        setIsSubmitting(false)
+        setIsSubmitted(true)
+      }, 400)
+    } catch {
       setIsSubmitting(false)
-      setIsSubmitted(true)
-    }, 1000)
+      alert('Could not register supplier. Please try again.')
+    }
   }
 
   if (isSubmitted) {

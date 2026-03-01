@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import AppLayout from '../components/AppLayout'
 import WorldMap from '../components/WorldMap'
@@ -11,10 +11,12 @@ import {
   INDUSTRY_LABELS,
 } from '../data/supplierDatabase'
 import { getEquipmentCategoriesForIndustry } from '../data/equipmentCategoriesByIndustry'
+import { getProductCategoriesForIndustry } from '../data/productCategoriesByIndustry'
 import { useAccountRegistry } from '../store/accountRegistry'
 import useRfqStore from '../store/rfqStore'
 import { useAuthStore } from '../store/authStore'
 import { useTier, TIERS } from '../services/featureFlags'
+import { supabase, isSupabaseConfigured } from '../config/supabase'
 import '../styles/app-page.css'
 import './ExecutiveSummary.css'
 
@@ -39,7 +41,10 @@ const ExecutiveSummary = () => {
 
   // Resolve category label for the page title
   const allCategories = useMemo(() => getEquipmentCategoriesForIndustry(industryId), [industryId])
-  const categoryObj = categoryId ? allCategories.find((c) => c.id === categoryId) : null
+  const productCategories = useMemo(() => getProductCategoriesForIndustry(industryId), [industryId])
+  const categoryObj = categoryId
+    ? allCategories.find((c) => c.id === categoryId) || productCategories.find((c) => c.id === categoryId)
+    : null
   const categoryLabel = categoryObj ? categoryObj.name : categoryId || ''
   
   const { getRfqsByIndustry, getRfqStats, addRfq, sendRfq, addAttachment, removeAttachment } = useRfqStore()
@@ -48,6 +53,7 @@ const ExecutiveSummary = () => {
   const [selectedSupplier, setSelectedSupplier] = useState(null)
   const [showRfqModal, setShowRfqModal] = useState(false)
   const [selectedForRfq, setSelectedForRfq] = useState(new Set()) // multi-select for RFQ comparison
+  const [dbRegisteredSellers, setDbRegisteredSellers] = useState([])
   const [newRfq, setNewRfq] = useState({
     title: '',
     categoryId: categoryId || '',
@@ -64,6 +70,77 @@ const ExecutiveSummary = () => {
       ? s.getSellersByCategory(industryId, categoryId)
       : s.getRegisteredSellers(industryId)
   )
+
+  // Database-backed registered suppliers (cross-device/session source of truth)
+  useEffect(() => {
+    let cancelled = false
+
+    const loadDbSuppliers = async () => {
+      if (!isSupabaseConfigured || !industryId) {
+        if (!cancelled) setDbRegisteredSellers([])
+        return
+      }
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, email, full_name, metadata, companies(name)')
+          .not('company_id', 'is', null)
+
+        if (error) throw error
+
+        const mapped = (data || [])
+          .filter((profile) => {
+            const md = profile?.metadata || {}
+            const accountTypes = Array.isArray(md.account_types)
+              ? md.account_types
+              : [md.account_type].filter(Boolean)
+            const isSellerLike = accountTypes.includes('seller') || accountTypes.includes('service_provider')
+            if (!isSellerLike) return false
+
+            const industries = Array.isArray(md.industries)
+              ? md.industries
+              : (md.industry ? [md.industry] : [])
+            const categoriesByIndustry = md.categories && typeof md.categories === 'object' ? md.categories : {}
+            const inIndustry = industries.includes(industryId)
+            const inCategory = !categoryId || (Array.isArray(categoriesByIndustry[industryId]) && categoriesByIndustry[industryId].includes(categoryId))
+            return inIndustry && inCategory
+          })
+          .map((profile) => {
+            const md = profile?.metadata || {}
+            const categoriesByIndustry = md.categories && typeof md.categories === 'object' ? md.categories : {}
+            return {
+              id: `db-${profile.id}`,
+              name: profile?.companies?.name || profile?.full_name || profile?.email || 'Supplier',
+              country: md.country || '—',
+              city: md.city || '—',
+              coordinates: md.coordinates || null,
+              industries: Array.isArray(md.industries) ? md.industries : (md.industry ? [md.industry] : []),
+              categories: Object.values(categoriesByIndustry).flat(),
+              source: 'registered_db',
+              rating: md.rating ?? 0,
+              riskLevel: md.riskLevel ?? 50,
+              fitLevel: md.fitLevel ?? 50,
+              capacityLevel: md.capacityLevel ?? 50,
+              certifications: md.certifications || [],
+              leadTimeDays: md.leadTimeDays ?? 0,
+              deliveryTimeDays: md.deliveryTimeDays ?? 0,
+              priceIndex: md.priceIndex ?? 100,
+              established: md.established ?? null,
+              employees: md.employees ?? null,
+              plan: md.plan || null,
+              registeredAt: md.registeredAt || null,
+            }
+          })
+
+        if (!cancelled) setDbRegisteredSellers(mapped)
+      } catch {
+        if (!cancelled) setDbRegisteredSellers([])
+      }
+    }
+
+    loadDbSuppliers()
+    return () => { cancelled = true }
+  }, [industryId, categoryId])
 
   // Get data — merge static supplier DB with registered sellers
   // Scope to equipment category when available
@@ -98,22 +175,28 @@ const ExecutiveSummary = () => {
         plan: a.plan,
         registeredAt: a.registeredAt,
       }))
-    return [...staticSuppliers, ...fromRegistry]
-  }, [industryId, categoryId, registeredSellers])
+    const namesAfterRegistry = new Set([
+      ...staticNames,
+      ...fromRegistry.map((s) => (s.name || '').toLowerCase()),
+    ])
+    const fromDatabase = dbRegisteredSellers.filter((s) => !namesAfterRegistry.has((s.name || '').toLowerCase()))
+    return [...staticSuppliers, ...fromRegistry, ...fromDatabase]
+  }, [industryId, categoryId, registeredSellers, dbRegisteredSellers])
 
   const supplierLocations = useMemo(() => {
     const staticLocs = getSupplierLocations(industryId, categoryId)
     const staticIds = new Set(staticLocs.map((l) => l.id))
-    const regLocs = registeredSellers
+    const registryAndDb = [...registeredSellers, ...dbRegisteredSellers]
+    const regLocs = registryAndDb
       .filter((a) => !staticIds.has(a.id) && a.coordinates)
-      .map((a) => ({ id: a.id, name: a.company, coordinates: a.coordinates, country: a.country || '—', city: a.city || '—', rating: a.rating ?? 0, riskLevel: a.riskLevel ?? 50, fitLevel: a.fitLevel ?? 50 }))
+      .map((a) => ({ id: a.id, name: a.company || a.name || 'Supplier', coordinates: a.coordinates, country: a.country || '—', city: a.city || '—', rating: a.rating ?? 0, riskLevel: a.riskLevel ?? 50, fitLevel: a.fitLevel ?? 50 }))
     const allLocs = [...staticLocs, ...regLocs]
     // Anonymize names on map for non-premium buyers
     if (!canSeeNames) {
       return allLocs.map((loc, i) => ({ ...loc, name: `Supplier #${(i + 1).toString().padStart(2, '0')}` }))
     }
     return allLocs
-  }, [industryId, categoryId, registeredSellers, canSeeNames])
+  }, [industryId, categoryId, registeredSellers, dbRegisteredSellers, canSeeNames])
 
   const metrics = useMemo(() => getIndustryMetrics(industryId, categoryId), [industryId, categoryId])
   const categories = allCategories

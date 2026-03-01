@@ -32,6 +32,7 @@ import {
   createFreeSubscription,
   createPendingSubscription,
 } from './subscriptionService'
+import { useIndustryStore } from '../store/industryStore'
 
 const googleProvider = isFirebaseConfigured ? new GoogleAuthProvider() : null
 
@@ -91,6 +92,9 @@ async function storeSupabaseSession(session, profile) {
     await useIndustrySubscriptionStore.getState().loadActiveSubscriptions(user.id)
   }
 
+  // Restore supplier industry/category registrations from database metadata.
+  await useIndustryStore.getState().hydrateFromDatabase?.()
+
   // Keep UI account-type context aligned with profile metadata.
   useSubscriptionStore.getState().setAccountType(primaryAccountType)
 }
@@ -135,6 +139,14 @@ async function syncProfileFromRegistrationMetadata(user, profile) {
       ? md.account_types
       : (profile?.metadata?.account_types || (md.account_type ? [md.account_type] : [])),
     industry: md.industry || profile?.metadata?.industry || null,
+    industries: Array.isArray(md.industries)
+      ? md.industries
+      : (Array.isArray(profile?.metadata?.industries)
+        ? profile.metadata.industries
+        : (md.industry ? [md.industry] : [])),
+    categories: (md.categories && typeof md.categories === 'object')
+      ? md.categories
+      : (profile?.metadata?.categories || {}),
     tier: md.tier || profile?.metadata?.tier || 'free',
   }
 
@@ -325,6 +337,8 @@ const authService = {
           account_type: primaryAccountType,
           account_types: normalizedAccountTypes,
           industry: selectedIndustry,
+          industries: [selectedIndustry],
+          categories: { [selectedIndustry]: [] },
           tier: normalizedTier,
         },
       })
@@ -361,6 +375,8 @@ const authService = {
                 account_type: primaryAccountType,
                 account_types: normalizedAccountTypes,
                 industry: selectedIndustry,
+                industries: [selectedIndustry],
+                categories: { [selectedIndustry]: [] },
                 tier: normalizedTier,
               },
               email_verified: false,

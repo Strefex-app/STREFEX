@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import AppLayout from '../components/AppLayout'
 import { getManufacturingCategory } from '../data/productCategoriesByIndustry'
-import { useSubscriptionStore, useFeatureFlag } from '../services/featureFlags'
+import { useSubscriptionStore } from '../services/featureFlags'
 import { useAuthStore } from '../store/authStore'
 import '../styles/app-page.css'
 import './IndustryHub.css'
@@ -15,6 +15,7 @@ const INDUSTRY_LABELS = {
   'raw-materials': 'Raw Materials',
   'oil-gas': 'Oil & Gas',
   'green-energy': 'Green Energy',
+  'household-products': 'Household Products',
 }
 
 /* ── Inline SVG icons ─────────────────────────────────────────────────────── */
@@ -50,8 +51,7 @@ export default function ProductSubcategoryPage() {
   const accountType = useSubscriptionStore((s) => s.accountType)
   const isSeller = !isSuperAdmin && (accountType === 'seller' || accountType === 'service_provider')
   const isBuyer = accountType === 'buyer'
-  const hasExecFeature = useFeatureFlag('executiveSummary')
-  const canSeeExecSummary = isSuperAdmin || (isBuyer && hasExecFeature)
+  const canSeeExecSummary = isSuperAdmin || isBuyer
 
   const [expandedSub, setExpandedSub] = useState(null)
 
@@ -276,7 +276,7 @@ export default function ProductSubcategoryPage() {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                navigate(`/product-hub/${industryId}/${categoryId}/${sub.id}/executive-summary`)
+                                navigate(`/product-hub/${industryId}/${categoryId}/executive-summary`)
                               }}
                               style={{
                                 display: 'inline-flex', alignItems: 'center', gap: 6,

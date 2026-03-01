@@ -518,6 +518,70 @@ export const PRODUCT_CATEGORIES_BY_INDUSTRY = {
       ],
     },
   ],
+
+  /* ─────────────────────────── HOUSEHOLD PRODUCTS ─────────────────────────── */
+  'household-products': [
+    {
+      id: 'kitchen-appliances',
+      name: 'Kitchen Appliances',
+      description: 'Home appliance components for cooking, food preparation, and kitchen electronics',
+      color: '#1565c0',
+      subcategories: [
+        { id: 'small-appliance-housing', name: 'Small Appliance Housings', description: 'Housings for blenders, mixers, toasters, coffee machines' },
+        { id: 'heating-elements', name: 'Heating Elements', description: 'Heating modules for kettles, ovens, and cookers' },
+        { id: 'motor-assemblies', name: 'Motor Assemblies', description: 'Compact motor assemblies for mixers, grinders, and extractors' },
+        { id: 'control-panels', name: 'Control Panels & Buttons', description: 'User interfaces, touch panels, and control buttons' },
+      ],
+    },
+    {
+      id: 'home-electronics',
+      name: 'Home Electronics',
+      description: 'Consumer home electronics components and assemblies',
+      color: '#6a1b9a',
+      subcategories: [
+        { id: 'pcb-assembly-home', name: 'PCB Assembly', description: 'Mainboards and control electronics for home devices' },
+        { id: 'display-modules', name: 'Display Modules', description: 'LCD/LED display modules and indicator panels' },
+        { id: 'sensor-modules-home', name: 'Sensor Modules', description: 'Temperature, humidity, and motion sensing modules' },
+        { id: 'power-supplies-home', name: 'Power Supply Units', description: 'AC/DC power boards and adapters for household products' },
+      ],
+    },
+    {
+      id: 'plastic-housewares',
+      name: 'Plastic Housewares',
+      description: 'Plastic components for storage, cleaning, and household utility products',
+      color: '#00838f',
+      subcategories: [
+        { id: 'injection-molded-containers', name: 'Injection Molded Containers', description: 'Boxes, bins, organizers, and storage containers' },
+        { id: 'blow-molded-bottles', name: 'Blow Molded Bottles', description: 'Cleaning bottles, dispensers, and refill containers' },
+        { id: 'plastic-closures', name: 'Closures & Caps', description: 'Caps, lids, closures, and snap-fit parts' },
+        { id: 'extruded-profiles-home', name: 'Extruded Profiles', description: 'Seals, strips, and utility profiles for home products' },
+      ],
+    },
+    {
+      id: 'cleaning-care-products',
+      name: 'Cleaning & Care Products',
+      description: 'Components and packaging for household cleaning and care products',
+      color: '#2e7d32',
+      subcategories: [
+        { id: 'sprayer-components', name: 'Sprayer Components', description: 'Triggers, nozzles, and pump dispensers' },
+        { id: 'detergent-packaging', name: 'Detergent Packaging', description: 'Bottles, caps, and refill pack structures' },
+        { id: 'nonwoven-cleaning', name: 'Nonwoven Cleaning Materials', description: 'Wipes, pads, and cleaning fabric components' },
+        { id: 'brush-components', name: 'Brush & Mop Components', description: 'Brush heads, handles, and mop fixture components' },
+      ],
+    },
+    {
+      id: 'furniture-home-components',
+      name: 'Furniture & Home Components',
+      description: 'Household furniture and home fixture components',
+      color: '#e65100',
+      subcategories: [
+        { id: 'metal-furniture-parts', name: 'Metal Furniture Parts', description: 'Frames, brackets, supports, and hardware fittings' },
+        { id: 'wood-composite-panels', name: 'Wood & Composite Panels', description: 'Panels, cabinet boards, laminated structures' },
+        { id: 'upholstery-textiles', name: 'Upholstery Textiles', description: 'Cover fabrics, cushioning, and stitched assemblies' },
+        { id: 'surface-coatings-home', name: 'Surface Coatings', description: 'Paint, laminate, and protective coating systems' },
+      ],
+    },
+  ],
 }
 
 /* ─────────────────────────────── Helper Functions ─────────────────────────── */

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import AppLayout from '../components/AppLayout'
 import Icon from '../components/Icon'
 import { getEquipmentCategoriesForIndustry } from '../data/equipmentCategoriesByIndustry'
-import { useSubscriptionStore, useFeatureFlag } from '../services/featureFlags'
+import { useSubscriptionStore } from '../services/featureFlags'
 import { useIndustryStore } from '../store/industryStore'
 import { useAuthStore } from '../store/authStore'
 import { useAccountRegistry } from '../store/accountRegistry'
@@ -41,10 +41,9 @@ const IndustryEquipmentLanding = () => {
 
   const [showCatPicker, setShowCatPicker] = useState(false) // categoryId or false
 
-  /* ── Executive Summary access (all buyers — detail level depends on plan) ── */
+  /* ── Executive Summary access (buyers + superadmin) ── */
   const isBuyer = accountType === 'buyer'
-  const hasExecFeature = useFeatureFlag('executiveSummary') // must call hook unconditionally
-  const canSeeExecSummary = isSuperAdmin || (isBuyer && hasExecFeature)
+  const canSeeExecSummary = isSuperAdmin || isBuyer
 
   /* ── Seller counts from registry (for buyer view) ────── */
   const sellerCounts = useAccountRegistry((s) => s.getSellerCountByCategory(industryId))
@@ -62,7 +61,12 @@ const IndustryEquipmentLanding = () => {
   const quickActions = [
     { id: 'rfq', label: 'Request Equipment Quote', icon: 'document', path: `${industryBasePath}/equipment-request` },
     { id: 'audit', label: 'Request Supplier Audit', icon: 'monitor', path: `${industryBasePath}/audit-request` },
-    { id: 'add', label: 'Add New Supplier', icon: 'plus', path: '/add-supplier' },
+    {
+      id: 'add',
+      label: 'Add New Supplier',
+      icon: 'plus',
+      path: `/add-supplier?industry=${encodeURIComponent(industryId)}&industryLabel=${encodeURIComponent(title)}&context=equipment`,
+    },
   ]
 
   const getCategoryIcon = (catId) => {
@@ -270,8 +274,8 @@ const IndustryEquipmentLanding = () => {
                   <button
                     onClick={() => {
                       selectCategory(industryId, showCatPicker, maxCategories)
+                      navigate(`${basePath}/${showCatPicker}/executive-summary`)
                       setShowCatPicker(false)
-                      // Category is the final level — stay on this page (no sub-page exists)
                     }}
                     style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#000888', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
                   >

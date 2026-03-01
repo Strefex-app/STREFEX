@@ -11,6 +11,7 @@
 import { create } from 'zustand'
 import { useAccountRegistry } from './accountRegistry'
 import { tenantKey } from '../utils/tenantStorage'
+import { isSupabaseConfigured, profilesService, companiesService } from '../services/supabaseService'
 
 const IND_BASE = 'strefex-selected-industries'
 const CAT_BASE = 'strefex-selected-categories'
@@ -61,6 +62,35 @@ const save = (baseKey, value) => {
   } catch { /* silent */ }
 }
 
+/** Persist selected industries/categories to Supabase profile/company metadata (best-effort). */
+const syncToSupabase = async (industries, categories) => {
+  if (!isSupabaseConfigured) return
+  try {
+    const profile = await profilesService.getMyProfile()
+    if (!profile) return
+
+    const nextMetadata = {
+      ...(profile.metadata || {}),
+      industries: [...industries],
+      categories: { ...categories },
+    }
+
+    await profilesService.updateProfile({ metadata: nextMetadata })
+
+    if (profile.company_id) {
+      await companiesService.update(profile.company_id, {
+        metadata: {
+          ...(profile.companies?.metadata || {}),
+          industries: [...industries],
+          categories: { ...categories },
+        },
+      }).catch(() => {})
+    }
+  } catch {
+    // Silent — local flow remains functional even if network/DB is unavailable.
+  }
+}
+
 export const useIndustryStore = create((set, get) => ({
   /* ── Industries ────────────────────────────────────────── */
 
@@ -76,6 +106,7 @@ export const useIndustryStore = create((set, get) => ({
     save(IND_BASE, next)
     set({ selectedIndustries: next })
     syncToRegistry(next, get().selectedCategories)
+    syncToSupabase(next, get().selectedCategories)
     return true
   },
 
@@ -88,12 +119,14 @@ export const useIndustryStore = create((set, get) => ({
     save(CAT_BASE, cats)
     set({ selectedCategories: cats })
     syncToRegistry(next, cats)
+    syncToSupabase(next, cats)
   },
 
   setIndustries: (ids) => {
     save(IND_BASE, ids)
     set({ selectedIndustries: ids })
     syncToRegistry(ids, get().selectedCategories)
+    syncToSupabase(ids, get().selectedCategories)
   },
 
   isSelected: (industryId) => get().selectedIndustries.includes(industryId),
@@ -102,6 +135,7 @@ export const useIndustryStore = create((set, get) => ({
     save(IND_BASE, [])
     save(CAT_BASE, {})
     set({ selectedIndustries: [], selectedCategories: {} })
+    syncToSupabase([], {})
   },
 
   /* ── Equipment categories ─────────────────────────────── */
@@ -122,6 +156,7 @@ export const useIndustryStore = create((set, get) => ({
     save(CAT_BASE, cats)
     set({ selectedCategories: cats })
     syncToRegistry(get().selectedIndustries, cats)
+    syncToSupabase(get().selectedIndustries, cats)
     return true
   },
 
@@ -132,6 +167,7 @@ export const useIndustryStore = create((set, get) => ({
     save(CAT_BASE, cats)
     set({ selectedCategories: cats })
     syncToRegistry(get().selectedIndustries, cats)
+    syncToSupabase(get().selectedIndustries, cats)
   },
 
   /** Get selected categories for a specific industry. */
@@ -140,4 +176,30 @@ export const useIndustryStore = create((set, get) => ({
   /** Check if a category is selected. */
   isCategorySelected: (industryId, categoryId) =>
     (get().selectedCategories[industryId] || []).includes(categoryId),
+
+  /**
+   * Hydrate local industry/category selections from Supabase metadata.
+   * Called after login/session restore to keep cross-device state consistent.
+   */
+  hydrateFromDatabase: async () => {
+    if (!isSupabaseConfigured) return
+    try {
+      const profile = await profilesService.getMyProfile()
+      const metadata = profile?.metadata || {}
+      const dbIndustries = Array.isArray(metadata.industries) ? metadata.industries : null
+      const dbCategories = metadata.categories && typeof metadata.categories === 'object' ? metadata.categories : null
+
+      if (!dbIndustries && !dbCategories) return
+
+      const nextIndustries = dbIndustries || []
+      const nextCategories = dbCategories || {}
+
+      save(IND_BASE, nextIndustries)
+      save(CAT_BASE, nextCategories)
+      set({ selectedIndustries: nextIndustries, selectedCategories: nextCategories })
+      syncToRegistry(nextIndustries, nextCategories)
+    } catch {
+      // Silent fallback to existing local state.
+    }
+  },
 }))

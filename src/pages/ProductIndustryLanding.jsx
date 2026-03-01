@@ -3,6 +3,8 @@ import AppLayout from '../components/AppLayout'
 import Icon from '../components/Icon'
 import { getProductCategoriesForIndustry } from '../data/productCategoriesByIndustry'
 import { useTranslation } from '../i18n/useTranslation'
+import { useSubscriptionStore } from '../services/featureFlags'
+import { useAuthStore } from '../store/authStore'
 import '../styles/app-page.css'
 import './IndustryHub.css'
 
@@ -14,6 +16,7 @@ const INDUSTRY_LABELS = {
   'raw-materials': 'Raw Materials',
   'oil-gas': 'Oil & Gas',
   'green-energy': 'Green Energy',
+  'household-products': 'Household Products',
 }
 
 const getCategoryIcon = (catId) => {
@@ -27,6 +30,9 @@ export default function ProductIndustryLanding() {
   const { t } = useTranslation()
   const industryLabel = INDUSTRY_LABELS[industryId] || industryId
   const categories = getProductCategoriesForIndustry(industryId)
+  const accountType = useSubscriptionStore((s) => s.accountType)
+  const isSuperAdmin = useAuthStore((s) => s.role === 'superadmin')
+  const canSeeExecSummary = isSuperAdmin || accountType === 'buyer'
 
   return (
     <AppLayout>
@@ -92,7 +98,7 @@ export default function ProductIndustryLanding() {
             <button
               key={cat.id}
               type="button"
-              onClick={() => navigate(`/product-hub/${industryId}/${cat.id}`)}
+              onClick={() => navigate(canSeeExecSummary ? `/product-hub/${industryId}/${cat.id}/executive-summary` : `/product-hub/${industryId}/${cat.id}`)}
               style={{
                 display: 'flex', flexDirection: 'column', gap: 12,
                 padding: '20px 22px', borderRadius: 14,
@@ -149,8 +155,41 @@ export default function ProductIndustryLanding() {
                 fontSize: 13, fontWeight: 600, color: cat.color,
                 display: 'flex', alignItems: 'center', gap: 4, marginTop: 'auto',
               }}>
-                {cat.subcategories.length} processes → Browse Suppliers
+                {cat.subcategories.length} processes → {canSeeExecSummary ? 'Executive Summary' : 'Browse Subcategories'}
               </span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {canSeeExecSummary && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/product-hub/${industryId}/${cat.id}/executive-summary`)
+                    }}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '7px 12px', borderRadius: 8, border: 'none',
+                      background: cat.color, color: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer',
+                    }}
+                  >
+                    Executive Summary
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/product-hub/${industryId}/${cat.id}`)
+                  }}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '7px 12px', borderRadius: 8,
+                    border: `1px solid ${cat.color}`, background: '#fff',
+                    color: cat.color, fontWeight: 600, fontSize: 12, cursor: 'pointer',
+                  }}
+                >
+                  Browse Subcategories
+                </button>
+              </div>
             </button>
           ))}
         </div>

@@ -64,6 +64,12 @@ const IndustryHub = () => {
     { id: 'equipment', label: 'Equipment Supplier Selection', icon: 'document', path: `${basePath}/equipment-request` },
     { id: 'service', label: 'Service', icon: 'refresh', path: `${basePath}/services` },
     { id: 'audit', label: 'Audit Request', icon: 'monitor', path: `${basePath}/audit-request` },
+    {
+      id: 'add',
+      label: 'Add New Supplier',
+      icon: 'plus',
+      path: `/add-supplier?industry=${encodeURIComponent(industryId)}&industryLabel=${encodeURIComponent(title)}&context=equipment`,
+    },
     { id: 'project', label: 'Project Management', icon: 'gantt', path: '/project-management' },
   ]
 

@@ -1,11 +1,13 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom'
 import { useIndustrySubscriptionStore } from '../services/subscriptionService'
+import { useAuthStore } from '../store/authStore'
 
 export default function IndustryGuard({ industry, requiredTier = 'free', children }) {
   const location = useLocation()
   const params = useParams()
   const subscriptions = useIndustrySubscriptionStore((s) => s.subscriptions)
   const loading = useIndustrySubscriptionStore((s) => s.loading)
+  const role = useAuthStore((s) => s.role)
 
   const targetIndustry = (industry || params.industryId || '').toLowerCase()
   const sub = subscriptions.find((s) => s.industry?.toLowerCase() === targetIndustry && s.status === 'active')
@@ -15,6 +17,11 @@ export default function IndustryGuard({ industry, requiredTier = 'free', childre
   const requiredLevel = levels[requiredTier] ?? 999
 
   if (loading) return null
+
+  // Superadmin has full cross-industry access regardless of subscription tier.
+  if (role === 'superadmin') {
+    return children
+  }
 
   if (!targetIndustry || userLevel >= requiredLevel) {
     return children

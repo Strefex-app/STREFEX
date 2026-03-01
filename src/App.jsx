@@ -209,6 +209,7 @@ function App() {
           <Route path="/product-hub" element={<P><ProductHub /></P>} />
           <Route path="/product-hub/:industryId" element={<P><ProductIndustryLanding /></P>} />
           <Route path="/product-hub/:industryId/:categoryId" element={<P><ProductSubcategoryPage /></P>} />
+          <Route path="/product-hub/:industryId/:categoryId/executive-summary" element={<Industry requiredTier="free"><ExecutiveSummary /></Industry>} />
           <Route path="/product-hub/:industryId/:categoryId/:processId/executive-summary" element={<P><ProductExecutiveSummary /></P>} />
           <Route path="/service-hub" element={<P><ServiceHub /></P>} />
 
@@ -218,7 +219,7 @@ function App() {
           <Route path="/industry/:industryId/overview" element={<Industry requiredTier="free"><IndustryOverview /></Industry>} />
           <Route path="/industry/:industryId/dashboard" element={<Industry requiredTier="basic"><Dashboard /></Industry>} />
           <Route path="/industry/:industryId/equipment" element={<Industry requiredTier="basic"><IndustryEquipmentLanding /></Industry>} />
-          <Route path="/industry/:industryId/equipment/:categoryId/executive-summary" element={<Industry requiredTier="standard"><ExecutiveSummary /></Industry>} />
+          <Route path="/industry/:industryId/equipment/:categoryId/executive-summary" element={<Industry requiredTier="free"><ExecutiveSummary /></Industry>} />
 
           {/* ── Management Hub ────────────────────────────── */}
           <Route path="/management" element={<P><ManagementHub /></P>} />

@@ -32,6 +32,7 @@ export default function SubscriptionPlans() {
   const isSuperAdmin = role === 'superadmin'
   const isCompanyAdmin = role === 'admin' || isSuperAdmin
   const stripeLive = isStripeConfigured
+  const showLocalPlanCatalog = !stripeLive
 
   const [billingPeriod, setBillingPeriod] = useState(storedBilling || BILLING_PERIODS.MONTHLY)
 
@@ -157,6 +158,14 @@ export default function SubscriptionPlans() {
     if (result?.error) setError(result.error)
   }
 
+  const handleQuickStripeCheckout = async (planId) => {
+    setError('')
+    setLoading(planId)
+    const result = await stripeService.checkout(planId)
+    if (result?.error) setError(result.error)
+    setLoading(null)
+  }
+
   const trialInfo = subStatus === 'trialing'
   const trialDaysLeft = useSubscriptionStore((s) => s.trialDaysLeft)()
   const isTrialExpired = subStatus === 'trial_expired'
@@ -172,12 +181,18 @@ export default function SubscriptionPlans() {
         {/* Header */}
         <div className="app-page-card sp-header-card">
           <h2 className="app-page-title">Plans & Pricing</h2>
-          <p className="app-page-subtitle">Choose the plan that fits your business. Upgrade or downgrade at any time.</p>
-          <div className="sp-billing-selector">
-            <button className={`sp-billing-opt ${billingPeriod === BILLING_PERIODS.MONTHLY ? 'active' : ''}`} onClick={() => handleBillingChange(BILLING_PERIODS.MONTHLY)}>Monthly</button>
-            <button className={`sp-billing-opt ${billingPeriod === BILLING_PERIODS.ANNUAL ? 'active' : ''}`} onClick={() => handleBillingChange(BILLING_PERIODS.ANNUAL)}>Yearly <span className="sp-billing-badge">Save 15%</span></button>
-            <button className={`sp-billing-opt ${billingPeriod === BILLING_PERIODS.TRIENNIAL ? 'active' : ''}`} onClick={() => handleBillingChange(BILLING_PERIODS.TRIENNIAL)}>3-Year <span className="sp-billing-badge best">Save 25%</span></button>
-          </div>
+          <p className="app-page-subtitle">
+            {stripeLive
+              ? 'Active billing is managed through Stripe plans below.'
+              : 'Choose the plan that fits your business. Upgrade or downgrade at any time.'}
+          </p>
+          {showLocalPlanCatalog && (
+            <div className="sp-billing-selector">
+              <button className={`sp-billing-opt ${billingPeriod === BILLING_PERIODS.MONTHLY ? 'active' : ''}`} onClick={() => handleBillingChange(BILLING_PERIODS.MONTHLY)}>Monthly</button>
+              <button className={`sp-billing-opt ${billingPeriod === BILLING_PERIODS.ANNUAL ? 'active' : ''}`} onClick={() => handleBillingChange(BILLING_PERIODS.ANNUAL)}>Yearly <span className="sp-billing-badge">Save 15%</span></button>
+              <button className={`sp-billing-opt ${billingPeriod === BILLING_PERIODS.TRIENNIAL ? 'active' : ''}`} onClick={() => handleBillingChange(BILLING_PERIODS.TRIENNIAL)}>3-Year <span className="sp-billing-badge best">Save 25%</span></button>
+            </div>
+          )}
         </div>
 
         {error && <div className="sp-alert">{error}</div>}
@@ -212,118 +227,147 @@ export default function SubscriptionPlans() {
               customerEmail={user?.email}
               clientReferenceId={user?.companyId || user?.tenant || ''}
             />
+            <div style={{ marginTop: '1rem' }}>
+              <p style={{ textAlign: 'center', marginBottom: '0.75rem', fontSize: '0.82rem', color: '#777' }}>
+                If the pricing table is slow, use quick checkout:
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
+                {PLANS.filter((p) => p.price > 0).map((plan) => (
+                  <button
+                    key={`quick-${plan.id}`}
+                    type="button"
+                    className="sp-btn sp-btn-outline"
+                    style={{ minWidth: 140 }}
+                    disabled={loading === plan.id}
+                    onClick={() => {
+                      if (isCompanyAdmin || isSuperAdmin) {
+                        handleQuickStripeCheckout(plan.id)
+                      } else {
+                        handleSubscribe(plan.id)
+                      }
+                    }}
+                  >
+                    {loading === plan.id ? 'Opening...' : `${plan.name} Checkout`}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
-        {/* ── Plan cards — 3 per row ── */}
-        <div className="sp-card-grid">
-          {PLANS.map((plan) => {
-            const price = getPlanPrice(plan, accountType, billingPeriod)
-            const monthlyPrice = plan.price
-            const isCurrent = plan.id === currentPlan
-            const savings = monthlyPrice > 0 && price < monthlyPrice ? Math.round((1 - price / monthlyPrice) * 100) : 0
-            const accent = planAccent(plan.id)
-            const visibleFeats = plan.features.slice(0, MAX_VISIBLE_FEATURES)
-            const hasMore = plan.features.length > MAX_VISIBLE_FEATURES
+        {showLocalPlanCatalog && (
+          <>
+            {/* ── Plan cards — 3 per row ── */}
+            <div className="sp-card-grid">
+              {PLANS.map((plan) => {
+                const price = getPlanPrice(plan, accountType, billingPeriod)
+                const monthlyPrice = plan.price
+                const isCurrent = plan.id === currentPlan
+                const savings = monthlyPrice > 0 && price < monthlyPrice ? Math.round((1 - price / monthlyPrice) * 100) : 0
+                const accent = planAccent(plan.id)
+                const visibleFeats = plan.features.slice(0, MAX_VISIBLE_FEATURES)
+                const hasMore = plan.features.length > MAX_VISIBLE_FEATURES
 
-            return (
-              <div key={plan.id} className={`sp-card ${isCurrent ? 'sp-card-active' : ''} ${plan.popular ? 'sp-card-popular' : ''}`}>
-                {plan.popular && <div className="sp-card-popular-tag">Most Popular</div>}
-                <div className="sp-card-header" style={{ borderColor: accent }}>
-                  <span className="sp-card-name" style={{ color: accent }}>{plan.name}</span>
-                  {isCurrent && <span className="sp-card-badge current">Current</span>}
-                </div>
-
-                <div className="sp-card-price-block">
-                  {price === 0 ? (
-                    <span className="sp-card-price">Free</span>
-                  ) : (
-                    <span className="sp-card-price">
-                      <span className="sp-card-currency">$</span>{price % 1 === 0 ? price : price.toFixed(2)}
-                      <span className="sp-card-interval">/mo</span>
-                    </span>
-                  )}
-                  {savings > 0 && (
-                    <div className="sp-card-savings">
-                      <span className="sp-card-original">${monthlyPrice}/mo</span>
-                      <span className="sp-card-save">Save {savings}%</span>
+                return (
+                  <div key={plan.id} className={`sp-card ${isCurrent ? 'sp-card-active' : ''} ${plan.popular ? 'sp-card-popular' : ''}`}>
+                    {plan.popular && <div className="sp-card-popular-tag">Most Popular</div>}
+                    <div className="sp-card-header" style={{ borderColor: accent }}>
+                      <span className="sp-card-name" style={{ color: accent }}>{plan.name}</span>
+                      {isCurrent && <span className="sp-card-badge current">Current</span>}
                     </div>
-                  )}
-                  <div className="sp-card-storage">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="5" rx="9" ry="3" stroke="currentColor" strokeWidth="2"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3" stroke="currentColor" strokeWidth="2"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" stroke="currentColor" strokeWidth="2"/></svg>
-                    {getStorageLabel(plan)}
+
+                    <div className="sp-card-price-block">
+                      {price === 0 ? (
+                        <span className="sp-card-price">Free</span>
+                      ) : (
+                        <span className="sp-card-price">
+                          <span className="sp-card-currency">$</span>{price % 1 === 0 ? price : price.toFixed(2)}
+                          <span className="sp-card-interval">/mo</span>
+                        </span>
+                      )}
+                      {savings > 0 && (
+                        <div className="sp-card-savings">
+                          <span className="sp-card-original">${monthlyPrice}/mo</span>
+                          <span className="sp-card-save">Save {savings}%</span>
+                        </div>
+                      )}
+                      <div className="sp-card-storage">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="5" rx="9" ry="3" stroke="currentColor" strokeWidth="2"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3" stroke="currentColor" strokeWidth="2"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" stroke="currentColor" strokeWidth="2"/></svg>
+                        {getStorageLabel(plan)}
+                      </div>
+                    </div>
+
+                    <ul className="sp-card-features">
+                      {visibleFeats.map((f, i) => (
+                        <li key={i}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke={accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                    {hasMore && (
+                      <button className="sp-learn-more" style={{ color: accent }} onClick={() => setDetailPlan(plan)}>
+                        Learn More ({plan.features.length - MAX_VISIBLE_FEATURES} more)
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      </button>
+                    )}
+
+                    <div className="sp-card-action">
+                      {isCurrent ? (
+                        <button className="sp-btn sp-btn-current" disabled>Current Plan</button>
+                      ) : plan.price === 0 ? (
+                        <button className="sp-btn sp-btn-outline" onClick={() => {
+                          const prevPlan = currentPlan
+                          setPlan('start')
+                          addTransaction({ type: 'plan_downgrade', service: 'Plan Free — Downgrade', amount: 0, method: 'free', status: 'paid', userEmail: user?.email || 'unknown', companyName: user?.companyName || '', planFrom: prevPlan, planTo: 'start', accountType: accountType || 'seller', billingPeriod: 'monthly' })
+                          analytics.track('plan_downgrade', { to: 'start' })
+                        }}>Downgrade</button>
+                      ) : pendingUpgrade && pendingUpgrade.planTo === plan.id ? (
+                        <button className="sp-btn sp-btn-pending" disabled>{pendingStatusLabel || 'Pending'}</button>
+                      ) : (
+                        <button className={`sp-btn ${plan.popular ? 'sp-btn-primary' : 'sp-btn-outline'}`} onClick={() => handleSubscribe(plan.id)} disabled={loading === plan.id || !!pendingUpgrade}>
+                          {loading === plan.id ? 'Processing...' : isCompanyAdmin ? 'Subscribe & Pay' : 'Request Upgrade'}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )
+              })}
+            </div>
 
-                <ul className="sp-card-features">
-                  {visibleFeats.map((f, i) => (
-                    <li key={i}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke={accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                {hasMore && (
-                  <button className="sp-learn-more" style={{ color: accent }} onClick={() => setDetailPlan(plan)}>
-                    Learn More ({plan.features.length - MAX_VISIBLE_FEATURES} more)
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </button>
-                )}
-
-                <div className="sp-card-action">
-                  {isCurrent ? (
-                    <button className="sp-btn sp-btn-current" disabled>Current Plan</button>
-                  ) : plan.price === 0 ? (
-                    <button className="sp-btn sp-btn-outline" onClick={() => {
-                      const prevPlan = currentPlan
-                      setPlan('start')
-                      addTransaction({ type: 'plan_downgrade', service: 'Plan Free — Downgrade', amount: 0, method: 'free', status: 'paid', userEmail: user?.email || 'unknown', companyName: user?.companyName || '', planFrom: prevPlan, planTo: 'start', accountType: accountType || 'seller', billingPeriod: 'monthly' })
-                      analytics.track('plan_downgrade', { to: 'start' })
-                    }}>Downgrade</button>
-                  ) : pendingUpgrade && pendingUpgrade.planTo === plan.id ? (
-                    <button className="sp-btn sp-btn-pending" disabled>{pendingStatusLabel || 'Pending'}</button>
-                  ) : (
-                    <button className={`sp-btn ${plan.popular ? 'sp-btn-primary' : 'sp-btn-outline'}`} onClick={() => handleSubscribe(plan.id)} disabled={loading === plan.id || !!pendingUpgrade}>
-                      {loading === plan.id ? 'Processing...' : isCompanyAdmin ? 'Subscribe & Pay' : 'Request Upgrade'}
-                    </button>
-                  )}
-                </div>
+            {/* Billing comparison summary */}
+            <div className="app-page-card">
+              <h3 className="sp-comparison-title">Billing Period Comparison</h3>
+              <div className="sp-comparison-table-wrap">
+                <table className="sp-comparison-table">
+                  <thead>
+                    <tr>
+                      <th>Plan</th>
+                      <th>Monthly</th>
+                      <th>Yearly <span className="sp-th-badge">-15%</span></th>
+                      <th>3-Year <span className="sp-th-badge best">-25%</span></th>
+                      <th>Storage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {PLANS.map((plan) => (
+                      <tr key={plan.id} className={plan.id === currentPlan ? 'sp-tbl-current' : ''}>
+                        <td className="sp-td-plan">
+                          <span className="sp-td-dot" style={{ background: planAccent(plan.id) }} />
+                          {plan.name}
+                        </td>
+                        <td>{plan.price === 0 ? 'Free' : `$${plan.price}/mo`}</td>
+                        <td>{plan.price === 0 ? 'Free' : `$${plan.annualPrice}/mo`}</td>
+                        <td>{plan.price === 0 ? 'Free' : `$${plan.triennialPrice}/mo`}</td>
+                        <td>{getStorageLabel(plan)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )
-          })}
-        </div>
-
-        {/* Billing comparison summary */}
-        <div className="app-page-card">
-          <h3 className="sp-comparison-title">Billing Period Comparison</h3>
-          <div className="sp-comparison-table-wrap">
-            <table className="sp-comparison-table">
-              <thead>
-                <tr>
-                  <th>Plan</th>
-                  <th>Monthly</th>
-                  <th>Yearly <span className="sp-th-badge">-15%</span></th>
-                  <th>3-Year <span className="sp-th-badge best">-25%</span></th>
-                  <th>Storage</th>
-                </tr>
-              </thead>
-              <tbody>
-                {PLANS.map((plan) => (
-                  <tr key={plan.id} className={plan.id === currentPlan ? 'sp-tbl-current' : ''}>
-                    <td className="sp-td-plan">
-                      <span className="sp-td-dot" style={{ background: planAccent(plan.id) }} />
-                      {plan.name}
-                    </td>
-                    <td>{plan.price === 0 ? 'Free' : `$${plan.price}/mo`}</td>
-                    <td>{plan.price === 0 ? 'Free' : `$${plan.annualPrice}/mo`}</td>
-                    <td>{plan.price === 0 ? 'Free' : `$${plan.triennialPrice}/mo`}</td>
-                    <td>{getStorageLabel(plan)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+            </div>
+          </>
+        )}
 
         {currentPlan !== 'start' && currentPlan !== 'free' && (
           <div className="sp-manage">
@@ -333,7 +377,7 @@ export default function SubscriptionPlans() {
       </div>
 
       {/* ── "Learn More" modal ── */}
-      {detailPlan && (
+      {showLocalPlanCatalog && detailPlan && (
         <div className="sp-modal-overlay" onClick={() => setDetailPlan(null)}>
           <div className="sp-modal" onClick={(e) => e.stopPropagation()}>
             <button className="sp-modal-close" onClick={() => setDetailPlan(null)}>

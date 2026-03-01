@@ -16,6 +16,7 @@ const INDUSTRY_LABELS = {
   'raw-materials': 'Raw Materials',
   'oil-gas': 'Oil & Gas',
   'green-energy': 'Green Energy',
+  'household-products': 'Household Products',
 }
 
 export default function ProductExecutiveSummary() {
