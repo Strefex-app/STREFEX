@@ -538,6 +538,7 @@ const stripeService = {
         enterprise: env.STRIPE_PRICE_ID_ENTERPRISE,
       }
       const fallbackPriceId = priceIdByPlan[planId]
+      let fallbackMessage = ''
       if (fallbackPriceId) {
         try {
           const stripe = await getStripe()
@@ -549,13 +550,28 @@ const stripeService = {
               cancelUrl: `${window.location.origin}/plans?canceled=true`,
             })
             if (!result?.error) return { success: true }
+            fallbackMessage = result.error?.message || ''
           }
-        } catch {
-          // Keep default error handling below.
+        } catch (fallbackErr) {
+          fallbackMessage = fallbackErr?.message || ''
         }
       }
 
+      // Final fallback: open Stripe Payment Link directly (if configured).
+      const paymentLinkByPlan = {
+        basic: env.STRIPE_PAYMENT_LINK_BASIC,
+        standard: env.STRIPE_PAYMENT_LINK_STANDARD,
+        premium: env.STRIPE_PAYMENT_LINK_PREMIUM,
+        enterprise: env.STRIPE_PAYMENT_LINK_ENTERPRISE,
+      }
+      const paymentLink = paymentLinkByPlan[planId]
+      if (paymentLink) {
+        window.location.assign(paymentLink)
+        return { success: true }
+      }
+
       const rawMessage =
+        fallbackMessage ||
         err?.detail ||
         err?.data?.detail ||
         err?.data?.message ||
@@ -571,7 +587,7 @@ const stripeService = {
         normalized === 'error'
 
       const errorMessage = isGenericUnexpected
-        ? 'Checkout is temporarily unavailable. Please try again in a minute. If this persists, set VITE_STRIPE_PRICE_ID_BASIC/STANDARD/PREMIUM/ENTERPRISE in Vercel for direct fallback checkout.'
+        ? 'Checkout is temporarily unavailable. Please set Stripe fallback env vars: VITE_STRIPE_PRICE_ID_* or VITE_STRIPE_PAYMENT_LINK_* in Vercel, then redeploy.'
         : String(rawMessage)
 
       analytics.track('checkout_error', { plan: planId, error: errorMessage })

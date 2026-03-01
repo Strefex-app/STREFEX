@@ -246,13 +246,7 @@ export default function SubscriptionPlans() {
                     className="sp-btn sp-btn-outline"
                     style={{ minWidth: 140 }}
                     disabled={loading === plan.id}
-                    onClick={() => {
-                      if (isCompanyAdmin || isSuperAdmin) {
-                        handleQuickStripeCheckout(plan.id)
-                      } else {
-                        handleSubscribe(plan.id)
-                      }
-                    }}
+                    onClick={() => handleQuickStripeCheckout(plan.id)}
                   >
                     {loading === plan.id ? 'Opening...' : `${plan.name} Checkout`}
                   </button>
