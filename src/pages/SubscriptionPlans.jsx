@@ -8,6 +8,7 @@ import { useTransactionStore, getCompanyDomain } from '../store/transactionStore
 import { useAuthStore } from '../store/authStore'
 import { analytics } from '../services/analytics'
 import { isStripeConfigured } from '../config/stripe'
+import env from '../config/env'
 import { syncSubscriptionFromSupabase } from '../services/stripeService'
 import './SubscriptionPlans.css'
 
@@ -32,7 +33,7 @@ export default function SubscriptionPlans() {
   const isSuperAdmin = role === 'superadmin'
   const isCompanyAdmin = role === 'admin' || isSuperAdmin
   const stripeLive = isStripeConfigured
-  const showLocalPlanCatalog = !stripeLive
+  const showLocalPlanCatalog = !stripeLive && env.IS_DEV
 
   const [billingPeriod, setBillingPeriod] = useState(storedBilling || BILLING_PERIODS.MONTHLY)
 
@@ -211,6 +212,12 @@ export default function SubscriptionPlans() {
         {pendingUpgrade && (
           <div className="sp-alert sp-alert-info" style={{ borderColor: '#e65100', background: 'rgba(230,81,0,.06)' }}>
             <strong>Upgrade Pending:</strong> Your upgrade to <strong>{PLANS.find((p) => p.id === pendingUpgrade.planTo)?.name}</strong> is: <strong>{pendingStatusLabel}</strong>
+          </div>
+        )}
+
+        {!stripeLive && env.IS_PROD && (
+          <div className="sp-alert" style={{ borderColor: '#e74c3c', background: 'rgba(231,76,60,.06)' }}>
+            Stripe plans are not configured for this deployment yet. Please set `VITE_STRIPE_PUBLISHABLE_KEY` and `VITE_STRIPE_PRICING_TABLE_ID` in Vercel, then redeploy.
           </div>
         )}
 
