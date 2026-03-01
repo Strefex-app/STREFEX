@@ -22,6 +22,10 @@ const env = {
   /* ── Stripe ───────────────────────────────────────────── */
   STRIPE_PUBLISHABLE_KEY:   import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY   || '',
   STRIPE_PRICING_TABLE_ID:  import.meta.env.VITE_STRIPE_PRICING_TABLE_ID  || '',
+  STRIPE_PRICE_ID_BASIC:    import.meta.env.VITE_STRIPE_PRICE_ID_BASIC     || '',
+  STRIPE_PRICE_ID_STANDARD: import.meta.env.VITE_STRIPE_PRICE_ID_STANDARD  || '',
+  STRIPE_PRICE_ID_PREMIUM:  import.meta.env.VITE_STRIPE_PRICE_ID_PREMIUM   || '',
+  STRIPE_PRICE_ID_ENTERPRISE: import.meta.env.VITE_STRIPE_PRICE_ID_ENTERPRISE || '',
 
   /* ── Mixpanel ─────────────────────────────────────────── */
   MIXPANEL_TOKEN: import.meta.env.VITE_MIXPANEL_TOKEN || '',

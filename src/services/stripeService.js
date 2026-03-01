@@ -2,6 +2,7 @@
  * Stripe service — subscription management and checkout.
  */
 import { getStripe, isStripeConfigured } from '../config/stripe'
+import env from '../config/env'
 import { billingApi } from './api'
 import { analytics } from './analytics'
 
@@ -528,8 +529,53 @@ const stripeService = {
       if (error) throw error
       return { success: true }
     } catch (err) {
-      analytics.track('checkout_error', { plan: planId, error: err.message })
-      return { error: err.message || 'Checkout failed' }
+      // Fallback path: if backend checkout endpoint is unavailable, redirect
+      // directly via Stripe price IDs configured in Vercel env vars.
+      const priceIdByPlan = {
+        basic: env.STRIPE_PRICE_ID_BASIC,
+        standard: env.STRIPE_PRICE_ID_STANDARD,
+        premium: env.STRIPE_PRICE_ID_PREMIUM,
+        enterprise: env.STRIPE_PRICE_ID_ENTERPRISE,
+      }
+      const fallbackPriceId = priceIdByPlan[planId]
+      if (fallbackPriceId) {
+        try {
+          const stripe = await getStripe()
+          if (stripe) {
+            const result = await stripe.redirectToCheckout({
+              mode: 'subscription',
+              lineItems: [{ price: fallbackPriceId, quantity: 1 }],
+              successUrl: `${window.location.origin}/plans?success=true`,
+              cancelUrl: `${window.location.origin}/plans?canceled=true`,
+            })
+            if (!result?.error) return { success: true }
+          }
+        } catch {
+          // Keep default error handling below.
+        }
+      }
+
+      const rawMessage =
+        err?.detail ||
+        err?.data?.detail ||
+        err?.data?.message ||
+        err?.data?.error ||
+        err?.message ||
+        ''
+
+      const normalized = String(rawMessage).trim().toLowerCase()
+      const isGenericUnexpected =
+        !normalized ||
+        normalized === 'unexpected error' ||
+        normalized === 'internal server error' ||
+        normalized === 'error'
+
+      const errorMessage = isGenericUnexpected
+        ? 'Checkout is temporarily unavailable. Please try again in a minute. If this persists, set VITE_STRIPE_PRICE_ID_BASIC/STANDARD/PREMIUM/ENTERPRISE in Vercel for direct fallback checkout.'
+        : String(rawMessage)
+
+      analytics.track('checkout_error', { plan: planId, error: errorMessage })
+      return { error: errorMessage }
     }
   },
 
