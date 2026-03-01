@@ -17,9 +17,8 @@ const SIZES = [48, 72, 96, 120, 128, 144, 152, 167, 180, 192, 256, 384, 512]
 const MASKABLE_SIZES = [192, 512]
 
 async function createIcon(size, logoRatio, filename) {
-  const logoW = Math.round(size * logoRatio)
-  const logoH = Math.round(logoW * (147 / 275))
-  const logo = await sharp(SRC).resize(logoW, logoH, { fit: 'inside' }).toBuffer()
+  const logoBox = Math.round(size * logoRatio)
+  const logo = await sharp(SRC).resize(logoBox, logoBox, { fit: 'inside' }).toBuffer()
   const icon = await sharp({
     create: { width: size, height: size, channels: 4, background: BG_COLOR },
   })
