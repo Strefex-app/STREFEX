@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import env from '../config/env'
 
 const SCRIPT_SRC = 'https://js.stripe.com/v3/pricing-table.js'
+const LOAD_TIMEOUT_MS = 20000
 
 /**
  * Embeds Stripe's hosted Pricing Table.
@@ -12,6 +13,7 @@ const SCRIPT_SRC = 'https://js.stripe.com/v3/pricing-table.js'
 export default function StripePricingTable({ customerEmail, clientReferenceId }) {
   const containerRef = useRef(null)
   const [status, setStatus] = useState('idle') // idle | loading | ready | error | timeout
+  const [retrySeed, setRetrySeed] = useState(0)
 
   useEffect(() => {
     if (!env.STRIPE_PRICING_TABLE_ID || !env.STRIPE_PUBLISHABLE_KEY) {
@@ -22,7 +24,7 @@ export default function StripePricingTable({ customerEmail, clientReferenceId })
     setStatus('loading')
     const timeoutId = window.setTimeout(() => {
       setStatus((prev) => (prev === 'loading' ? 'timeout' : prev))
-    }, 12000)
+    }, LOAD_TIMEOUT_MS)
 
     let script = document.querySelector(`script[src="${SCRIPT_SRC}"]`)
     const handleLoad = () => setStatus('ready')
@@ -35,6 +37,8 @@ export default function StripePricingTable({ customerEmail, clientReferenceId })
       script.addEventListener('load', handleLoad)
       script.addEventListener('error', handleError)
       document.head.appendChild(script)
+    } else if (window.customElements?.get('stripe-pricing-table')) {
+      setStatus('ready')
     } else if (script.dataset.loaded === 'true') {
       setStatus('ready')
     } else {
@@ -65,7 +69,7 @@ export default function StripePricingTable({ customerEmail, clientReferenceId })
       script?.removeEventListener('load', markLoaded)
       if (container) container.innerHTML = ''
     }
-  }, [customerEmail, clientReferenceId])
+  }, [customerEmail, clientReferenceId, retrySeed])
 
   if (!env.STRIPE_PRICING_TABLE_ID || !env.STRIPE_PUBLISHABLE_KEY) {
     return (
@@ -85,11 +89,39 @@ export default function StripePricingTable({ customerEmail, clientReferenceId })
       {status === 'timeout' && (
         <div className="sp-alert" style={{ marginBottom: '1rem' }}>
           Stripe plans are taking too long to load. You can still use quick checkout buttons below.
+          <button
+            type="button"
+            onClick={() => setRetrySeed((v) => v + 1)}
+            style={{
+              marginLeft: 10,
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: '1px solid #d0d0d0',
+              background: '#fff',
+              cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
         </div>
       )}
       {status === 'error' && (
         <div className="sp-alert" style={{ marginBottom: '1rem' }}>
           Could not load Stripe pricing table. Please try again or use quick checkout buttons below.
+          <button
+            type="button"
+            onClick={() => setRetrySeed((v) => v + 1)}
+            style={{
+              marginLeft: 10,
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: '1px solid #d0d0d0',
+              background: '#fff',
+              cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
         </div>
       )}
       <div ref={containerRef} className="stripe-pricing-table-wrapper" />
