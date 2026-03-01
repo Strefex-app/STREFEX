@@ -15,6 +15,11 @@ const BG_COLOR = { r: 25, g: 42, b: 86, alpha: 1 } // #192A56
 
 const SIZES = [48, 72, 96, 120, 128, 144, 152, 167, 180, 192, 256, 384, 512]
 const MASKABLE_SIZES = [192, 512]
+const LOGO_RATIO_REGULAR = 0.88
+const LOGO_RATIO_MASKABLE = 0.74
+const LOGO_RATIO_FAVICON_32 = 0.9
+const LOGO_RATIO_FAVICON_16 = 0.92
+const LOGO_RATIO_APPLE = 0.9
 
 async function createIcon(size, logoRatio, filename) {
   const logoBox = Math.round(size * logoRatio)
@@ -37,31 +42,31 @@ async function generate() {
   for (const size of SIZES) {
     const file = resolve(OUT, `icon-${size}x${size}.png`)
     jobs.push(
-      createIcon(size, 0.7, file).then(() => console.log(`  icon-${size}x${size}.png`))
+      createIcon(size, LOGO_RATIO_REGULAR, file).then(() => console.log(`  icon-${size}x${size}.png`))
     )
   }
 
-  // Maskable icons: logo smaller (60%) to stay within the safe zone
+  // Maskable icons keep some extra breathing room for platform masking.
   for (const size of MASKABLE_SIZES) {
     const file = resolve(OUT, `icon-maskable-${size}x${size}.png`)
     jobs.push(
-      createIcon(size, 0.55, file).then(() => console.log(`  icon-maskable-${size}x${size}.png`))
+      createIcon(size, LOGO_RATIO_MASKABLE, file).then(() => console.log(`  icon-maskable-${size}x${size}.png`))
     )
   }
 
   // Favicons
   jobs.push(
-    createIcon(32, 0.7, resolve(ROOT, 'public', 'favicon-32x32.png'))
+    createIcon(32, LOGO_RATIO_FAVICON_32, resolve(ROOT, 'public', 'favicon-32x32.png'))
       .then(() => console.log('  favicon-32x32.png'))
   )
   jobs.push(
-    createIcon(16, 0.75, resolve(ROOT, 'public', 'favicon-16x16.png'))
+    createIcon(16, LOGO_RATIO_FAVICON_16, resolve(ROOT, 'public', 'favicon-16x16.png'))
       .then(() => console.log('  favicon-16x16.png'))
   )
 
   // Apple touch icon
   jobs.push(
-    createIcon(180, 0.7, resolve(ROOT, 'public', 'apple-touch-icon.png'))
+    createIcon(180, LOGO_RATIO_APPLE, resolve(ROOT, 'public', 'apple-touch-icon.png'))
       .then(() => console.log('  apple-touch-icon.png'))
   )
 
