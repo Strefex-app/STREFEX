@@ -6,10 +6,13 @@
  * - Only an existing superadmin can promote another account to superadmin
  * - Company admins CANNOT self-escalate to superadmin
  *
- * Credentials are read from environment variables (VITE_SA_EMAIL, VITE_SA_PASS_HASH).
+ * Primary source of truth is Supabase Auth + public.profiles role.
+ * VITE_SA_EMAIL is used as an additional client-side safeguard to avoid
+ * accidental superadmin escalation for non-STREFEX emails.
  */
 
-const SUPERADMIN_EMAIL = (import.meta.env.VITE_SA_EMAIL || '').trim().toLowerCase()
+const DEFAULT_SUPERADMIN_EMAIL = 'strefex@strfgroup.ru'
+const SUPERADMIN_EMAIL = (import.meta.env.VITE_SA_EMAIL || DEFAULT_SUPERADMIN_EMAIL).trim().toLowerCase()
 const SA_PASS_HASH     = (import.meta.env.VITE_SA_PASS_HASH || '').trim()
 
 function verifyPassword(password) {
